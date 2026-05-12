@@ -2,6 +2,8 @@
 
 本文记录使用 [ASAP](https://github.com/JeffWang987/ASAP) 将 NuScenes 原始 2Hz 关键帧标注扩展为 12Hz 高频标注的完整流程，以及后续 HUGSIM 场景数据提取的环境配置与使用方法。
 
+> **注意**：本文所有命令默认在 Docker 容器 `ubuntu_dev` 内执行，工作目录为 `/workspace/HUGSIM`。
+
 ## 背景
 
 NuScenes 相机硬件本身以 12Hz 拍摄，但官方只对其中 2Hz 的**关键帧**（key frame）提供了标注。数据集中 `samples/` 存放关键帧（约 3,400 张/相机），`sweeps/` 存放全部 12Hz 图像（约 16,000 张/相机）——图像本身无需提升帧率，非关键帧的图像文件已经存在。
@@ -20,42 +22,36 @@ ASAP 解决这两个问题：
 
 ### 1. 创建 Conda 环境
 
-ASAP 依赖 Python 3.7、PyTorch 1.9.0、CUDA 11.1 及 mmcv-full 1.4.0。在 Docker 容器 `ubuntu_dev` 中创建独立环境：
+ASAP 依赖 Python 3.7、PyTorch 1.9.0、CUDA 11.1 及 mmcv-full 1.4.0。创建独立环境：
 
 ```bash
-docker exec ubuntu_dev bash -c "conda create -n ASAP python=3.7 -y"
+conda create -n ASAP python=3.7 -y
 ```
 
 ### 2. 安装依赖
 
 ```bash
-# nuscenes-devkit（使用清华 PyPI 镜像）
-docker exec ubuntu_dev bash -c "source activate ASAP && \
-  pip install -i https://pypi.tuna.tsinghua.edu.cn/simple nuscenes-devkit"
+# 激活环境
+conda activate ASAP
+
+# nuscenes-devkit
+pip install -i https://pypi.tuna.tsinghua.edu.cn/simple nuscenes-devkit
 
 # PyTorch 1.9.0 + CUDA 11.1
-docker exec -e http_proxy="http://127.0.0.1:7890" \
-  -e https_proxy="http://127.0.0.1:7890" \
-  ubuntu_dev bash -c "source activate ASAP && \
-  conda install pytorch==1.9.0 torchvision==0.10.0 cudatoolkit=11.1 \
-  -c pytorch -c conda-forge -y"
+conda install pytorch==1.9.0 torchvision==0.10.0 cudatoolkit=11.1 -c pytorch -c conda-forge -y
 
 # mmcv-full 1.4.0
-docker exec -e http_proxy="http://127.0.0.1:7890" \
-  -e https_proxy="http://127.0.0.1:7890" \
-  ubuntu_dev bash -c "source activate ASAP && \
-  pip install mmcv-full==1.4.0 \
-  -f https://download.openmmlab.com/mmcv/dist/cu111/torch1.9.0/index.html"
+pip install mmcv-full==1.4.0 -f https://download.openmmlab.com/mmcv/dist/cu111/torch1.9.0/index.html
 ```
 
 ### 3. 验证环境
 
 ```bash
-docker exec ubuntu_dev bash -c "source activate ASAP && python -c '
-import torch; print(\"PyTorch:\", torch.__version__, \"CUDA:\", torch.cuda.is_available())
+python -c '
+import torch; print("PyTorch:", torch.__version__, "CUDA:", torch.cuda.is_available())
 import nuscenes
-import mmcv; print(\"mmcv:\", mmcv.__version__)
-'"
+import mmcv; print("mmcv:", mmcv.__version__)
+'
 ```
 
 预期输出：
@@ -69,13 +65,12 @@ mmcv: 1.4.0
 
 ### 目录结构
 
-NuScenes 原始数据位于 `/workspace/data/NuScenes`（Docker 内部路径），ASAP 脚本期望在仓库根目录下的 `data/nuscenes/` 访问数据。通过软链接连接：
+NuScenes 原始数据位于 `/workspace/data/NuScenes`，ASAP 脚本期望在仓库根目录下的 `data/nuscenes/` 访问数据。通过软链接连接：
 
 ```bash
-docker exec ubuntu_dev bash -c "
-  mkdir -p /workspace/HUGSIM/external/ASAP/data
-  ln -s /workspace/data/NuScenes /workspace/HUGSIM/external/ASAP/data/nuscenes
-"
+cd /workspace/HUGSIM/external/ASAP
+mkdir -p data
+ln -s /workspace/data/NuScenes data/nuscenes
 ```
 
 链接后的目录结构：
@@ -109,21 +104,16 @@ ASAP 提供两种标注生成策略：
 HUGSIM 使用 `interp` 策略即可。执行前需创建一个占位文件，因为脚本无条件加载 LiDAR 推理结果（插值策略实际不使用）：
 
 ```bash
-docker exec ubuntu_dev bash -c "
-  cd /workspace/HUGSIM/external/ASAP
-  mkdir -p out/lidar_20Hz
-  echo '{}' > out/lidar_20Hz/results_nusc.json
-"
+cd /workspace/HUGSIM/external/ASAP
+mkdir -p out/lidar_20Hz
+echo '{}' > out/lidar_20Hz/results_nusc.json
 ```
 
 运行标注生成：
 
 ```bash
-docker exec ubuntu_dev bash -c "
-  cd /workspace/HUGSIM/external/ASAP
-  source activate ASAP
-  bash scripts/ann_generator.sh 12 --ann_strategy 'interp'
-"
+conda activate ASAP
+bash scripts/ann_generator.sh 12 --ann_strategy 'interp'
 ```
 
 ### 输出
@@ -166,11 +156,11 @@ docker exec ubuntu_dev bash -c "
 `load.py` 使用 `nuscenes-devkit`，可以直接复用 ASAP 环境：
 
 ```bash
-docker exec ubuntu_dev bash -c "
-  cd /workspace/HUGSIM/data
-  source activate ASAP
-  export PYTHONPATH=\"\${PWD}:\$PYTHONPATH\"
-  python nusc/load.py \
+cd /workspace/HUGSIM/data
+conda activate ASAP
+export PYTHONPATH="${PWD}:$PYTHONPATH"
+
+python nusc/load.py \
     --datapath /workspace/data/NuScenes \
     --version interp_12Hz_trainval \
     --seq scene-0038 \
@@ -179,7 +169,6 @@ docker exec ubuntu_dev bash -c "
     --end 180 \
     --downsample 2 \
     --video
-"
 ```
 
 参数说明：
