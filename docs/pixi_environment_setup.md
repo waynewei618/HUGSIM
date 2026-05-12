@@ -218,6 +218,45 @@ print(tuple(y.shape), y.dtype, y.device)
 PY
 ```
 
+## xFormers 故障排查
+
+UniDepth 会使用 xFormers 的 memory efficient attention。若深度估计阶段出现 xFormers CUDA 算子不可用，先确认当前安装与 PyTorch/CUDA 匹配：
+
+```bash
+pixi run python - <<'PY'
+import torch, xformers
+from xformers.ops import memory_efficient_attention
+print(torch.__version__, torch.version.cuda, xformers.__version__)
+q = torch.randn(1, 64, 4, 64, device="cuda", dtype=torch.float16)
+y = memory_efficient_attention(q, q, q)
+torch.cuda.synchronize()
+print(tuple(y.shape), y.dtype, y.device)
+PY
+```
+
+如果确认为 xFormers CUDA 算子不可用，可以临时设置：
+
+```bash
+export HUGSIM_DISABLE_XFORMERS=1
+```
+
+这会让 `data/utils/estimate_depth.py` 禁用 UniDepth 的 xFormers 路径，回退到 PyTorch attention。该方式只用于临时绕过环境问题；正常环境应优先修复或重建 `external/xformers`。
+
+## 模型权重
+
+流程中复用的模型权重统一放在项目的 `checkpoints/` 目录下，避免重复下载：
+
+```text
+checkpoints/
+├── distance_measures_regressor.pth
+├── hrnet48_OCR_HMS_IF_checkpoint.pth
+└── unidepth-v2-vitl14/
+    ├── config.json
+    └── model.safetensors
+```
+
+运行前检查默认权重路径是否存在于 `checkpoints/`。如果要临时使用其他位置，通过对应环境变量覆盖，不建议改回在线下载。
+
 ## 结果
 
 - HUGSIM 默认 `pixi` 环境已安装完成。

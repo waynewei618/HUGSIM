@@ -1,6 +1,6 @@
 # NuScenes 2Hz → 12Hz 标注帧率提升流程
 
-本文记录使用 [ASAP](https://github.com/JeffWang987/ASAP) 将 NuScenes 原始 2Hz 关键帧标注扩展为 12Hz 高频标注的完整流程，以及后续 HUGSIM 场景数据提取的环境配置与使用方法。
+本文记录使用 [ASAP](https://github.com/JeffWang987/ASAP) 将 NuScenes 原始 2Hz 关键帧标注扩展为 12Hz 高频标注的流程。
 
 > **注意**：本文所有命令默认在 Docker 容器 `ubuntu_dev` 内执行，工作目录为 `/workspace/HUGSIM`。
 
@@ -35,7 +35,7 @@ conda create -n ASAP python=3.7 -y
 conda activate ASAP
 
 # nuscenes-devkit
-pip install -i https://pypi.tuna.tsinghua.edu.cn/simple nuscenes-devkit
+pip install nuscenes-devkit
 
 # PyTorch 1.9.0 + CUDA 11.1
 conda install pytorch==1.9.0 torchvision==0.10.0 cudatoolkit=11.1 -c pytorch -c conda-forge -y
@@ -63,29 +63,19 @@ mmcv: 1.4.0
 
 ## 数据准备
 
-### 目录结构
+### 数据路径
 
-NuScenes 原始数据位于 `/workspace/data/NuScenes`，ASAP 脚本期望在仓库根目录下的 `data/nuscenes/` 访问数据。通过软链接连接：
+NuScenes 原始数据位于 `/workspace/data/NuScenes`。ASAP 的脚本默认把数据路径写在脚本内的 `data_path` 变量中，例如 `external/ASAP/scripts/ann_generator.sh` 默认值为：
+
+```bash
+data_path="./data/nuscenes"
+```
+
+运行前将脚本中的 `data_path` 改为实际数据目录：
 
 ```bash
 cd /workspace/HUGSIM/external/ASAP
-mkdir -p data
-ln -s /workspace/data/NuScenes data/nuscenes
-```
-
-链接后的目录结构：
-
-```
-external/ASAP/
-├── data/
-│   └── nuscenes/          → /workspace/data/NuScenes
-│       ├── maps/
-│       ├── samples/
-│       ├── sweeps/
-│       └── v1.0-trainval/
-├── sAP3D/
-├── scripts/
-└── ...
+sed -i 's#data_path="./data/nuscenes"#data_path="/workspace/data/NuScenes"#' scripts/ann_generator.sh
 ```
 
 ### 数据版本
@@ -147,65 +137,6 @@ bash scripts/ann_generator.sh 12 --ann_strategy 'interp'
 - 约 1,100,000 条新 sample_annotation
 - 约 420,000 条新 sample_data
 
-## 提取 HUGSIM 场景数据
+## 后续处理
 
-标注生成后，使用 HUGSIM 的 `data/nusc/load.py` 提取单个场景。
-
-### 依赖
-
-`load.py` 使用 `nuscenes-devkit`，可以直接复用 ASAP 环境：
-
-```bash
-cd /workspace/HUGSIM/data
-conda activate ASAP
-export PYTHONPATH="${PWD}:$PYTHONPATH"
-
-python nusc/load.py \
-    --datapath /workspace/data/NuScenes \
-    --version interp_12Hz_trainval \
-    --seq scene-0038 \
-    --out /path/to/output/scene-0038 \
-    --start 0 \
-    --end 180 \
-    --downsample 2 \
-    --video
-```
-
-参数说明：
-| 参数 | 说明 |
-|---|---|
-| `--datapath` | NuScenes 数据根目录 |
-| `--version` | 数据版本，使用 `interp_12Hz_trainval` |
-| `--seq` | 场景名，如 `scene-0038` |
-| `--out` | 输出目录 |
-| `--start` | 起始帧（默认 0） |
-| `--end` | 结束帧（-1 表示全部） |
-| `--downsample` | 降采样倍数（默认 2） |
-| `--video` | 同时生成预览视频 |
-
-### 输出结构
-
-```
-<out>/
-├── images/
-│   ├── CAM_FRONT/
-│   ├── CAM_FRONT_LEFT/
-│   ├── CAM_FRONT_RIGHT/
-│   ├── CAM_BACK/
-│   ├── CAM_BACK_LEFT/
-│   └── CAM_BACK_RIGHT/
-├── meta_data.json
-├── cam_rigid_config.json
-├── front_info.json
-├── ground_lidar.ply
-└── view.mp4              # 若指定 --video
-```
-
-## 环境对照表
-
-| 用途 | 环境 | Python | PyTorch | CUDA |
-|---|---|---|---|---|
-| ASAP 标注生成 | Conda `ASAP` | 3.7 | 1.9.0 | 11.1 |
-| HUGSIM 主环境 | Pixi `hugsim-env` | 3.10+ | 2.4.1 | 11.8 |
-
-`data/nusc/load.py` 等数据预处理脚本仅依赖 `nuscenes-devkit`，两个环境均可运行。推荐使用 `ASAP` 环境直接运行，避免环境切换。
+生成 `interp_12Hz_trainval` 后，使用 HUGSIM 主环境执行场景提取、语义分割、动态 mask、深度估计和点云融合。具体流程见 `docs/nuscenes_preprocessing.md`。
