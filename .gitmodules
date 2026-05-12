@@ -1,0 +1,45 @@
+[submodule "external/ASAP"]
+	path = external/ASAP
+	url = https://github.com/JeffWang987/ASAP.git
+[submodule "external/simple-knn"]
+	path = external/simple-knn
+	url = https://gitlab.inria.fr/bkerbl/simple-knn.git
+	branch = main
+[submodule "external/HUGSIM_splat"]
+	path = external/HUGSIM_splat
+	url = https://github.com/hyzhou404/HUGSIM_splat.git
+	branch = main
+[submodule "external/Optical-Flow-Visualization-PyTorch"]
+	path = external/Optical-Flow-Visualization-PyTorch
+	url = https://github.com/ChristophReich1996/Optical-Flow-Visualization-PyTorch
+	branch = main
+[submodule "external/UniDepth"]
+	path = external/UniDepth
+	url = https://github.com/hyzhou404/UniDepth.git
+	branch = main
+[submodule "external/trajdata"]
+	path = external/trajdata
+	url = https://github.com/hyzhou404/trajdata.git
+	branch = main
+[submodule "external/tiny-cuda-nn"]
+	path = external/tiny-cuda-nn
+	url = https://github.com/NVlabs/tiny-cuda-nn
+	branch = master
+[submodule "external/kitti360Scripts"]
+	path = external/kitti360Scripts
+	url = https://github.com/autonomousvision/kitti360Scripts.git
+	branch = master
+[submodule "external/simple-waymo-open-dataset-reader"]
+	path = external/simple-waymo-open-dataset-reader
+	url = https://github.com/gdlg/simple-waymo-open-dataset-reader.git
+	branch = master
+[submodule "external/pytorch3d"]
+	path = external/pytorch3d
+	url = https://github.com/facebookresearch/pytorch3d.git
+[submodule "external/nuscenes-devkit"]
+	path = external/nuscenes-devkit
+	url = https://github.com/hyzhou404/nuscenes-devkit.git
+	branch = master
+[submodule "external/apex"]
+	path = external/apex
+	url = https://github.com/NVIDIA/apex.git
