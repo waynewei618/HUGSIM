@@ -15,7 +15,10 @@ from utils.config import cfg
 from models.InverseForm import InverseNet
 import models
 
-INVERSEFORM_MODULE = os.path.join("checkpoints", "distance_measures_regressor.pth")
+INVERSEFORM_MODULE = os.environ.get(
+    "INVERSEFORM_DISTANCE_MODEL_PATH",
+    "/workspace/HUGSIM/checkpoints/distance_measures_regressor.pth",
+)
 
 
 def load_model_from_dict(model, pretrained):

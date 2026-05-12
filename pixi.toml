@@ -13,7 +13,7 @@ python = "==3.11.10"
 setuptools = "==78.1.0"
 
 [pypi-options]
-no-build-isolation = ["gsplat", "pytorch3d", "tinycudann", "simple-knn"]
+no-build-isolation = ["gsplat", "pytorch3d", "tinycudann", "simple-knn", "xformers"]
 
 [pypi-dependencies]
 torch = { version = "==2.4.1", index = "https://download.pytorch.org/whl/cu118" }
@@ -71,3 +71,4 @@ simple-waymo-open-dataset-reader = { path = "./external/simple-waymo-open-datase
 pytorch3d = { path = "./external/pytorch3d", editable = false }
 nuscenes-devkit = { path = "./external/nuscenes-devkit", editable = false }
 moviepy = ">=2.2.1, <3"
+xformers = { path = "./external/xformers", editable = false }

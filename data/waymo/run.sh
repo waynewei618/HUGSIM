@@ -1,19 +1,21 @@
 #!/bin/bash
+set -euo pipefail
 
-cuda=4
+cuda=${CUDA_VISIBLE_DEVICES:-0}
 export CUDA_VISIBLE_DEVICES=$cuda
 
-# base_dir="/nas/datasets/Waymo_NOTR/static"
-# segment="segment-10061305430875486848_1080_000_1100_000_with_camera_labels.tfrecord"
-
-base_dir="/nas/datasets/Waymo_NOTR/dynamic"
-segment="segment-16801666784196221098_2480_000_2500_000_with_camera_labels.tfrecord"
+base_dir=${WAYMO_BASE_DIR:-"/workspace/data/waymo"}
+segment=${WAYMO_SEGMENT:-"segment-16801666784196221098_2480_000_2500_000_with_camera_labels.tfrecord"}
 
 seg_prefix=$(echo $segment| cut -c 9-15)
 seq_name=${seg_prefix}
-out=/data3/hyzhou/data/HUGSIM/release/waymo/$seq_name
+out=${WAYMO_OUT:-"/workspace/HUGSIM/outputs/waymo/$seq_name"}
 cameras="1 2 3"
 
+if [ ! -f "${base_dir}/${segment}" ]; then
+    echo "Waymo segment not found: ${base_dir}/${segment}" >&2
+    exit 1
+fi
 
 mkdir -p $out
 

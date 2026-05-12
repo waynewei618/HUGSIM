@@ -289,7 +289,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/93/1f/5d6dbf551766308f6f50f8baf8e9860be6182911e8106da7a7f73785f4c4/websockets-15.0.1-cp311-cp311-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/6c/69/05837f91dfe42109203ffa3e488214ff86a6d68b2ed6c167da6cdc42349b/werkzeug-3.0.6-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ca/51/5447876806d1088a0f8f71e16542bf350918128d0a69437df26047c8e46f/widgetsnbextension-4.0.14-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/2a/5b/242c68fb8c932815f8f2beea123e6a0dae1b703d87509af28aeddbd6d59b/xformers-0.0.28.post1-cp311-cp311-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/a8/a9/d23012099dc88ec69a29c6407b41d89681cb674c2043cd5b467c7e299c08/xyzservices-2026.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/44/15/bb13b4913ef95ad5448490821eee4671d0e67673342e4d4070854e5fe081/zarr-3.1.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b7/1a/7e4798e9339adc931158c9d69ecc34f5e6791489d469f5e50ec15e35f458/zipp-3.21.0-py3-none-any.whl
@@ -303,6 +302,7 @@ environments:
       - pypi: ./external/simple-waymo-open-dataset-reader
       - pypi: ./external/tiny-cuda-nn/bindings/torch
       - pypi: ./external/trajdata
+      - pypi: ./external/xformers
       - pypi: ./sim
 packages:
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -4705,13 +4705,13 @@ packages:
   version: 4.0.14
   sha256: 4875a9eaf72fbf5079dc372a51a9f268fc38d46f767cbf85c43a36da5cb9b575
   requires_python: '>=3.7'
-- pypi: https://files.pythonhosted.org/packages/2a/5b/242c68fb8c932815f8f2beea123e6a0dae1b703d87509af28aeddbd6d59b/xformers-0.0.28.post1-cp311-cp311-manylinux_2_28_x86_64.whl
+- pypi: ./external/xformers
   name: xformers
-  version: 0.0.28.post1
-  sha256: 33f594c01d0a803a782eac5a1824ed7631baf15cfa2d34400013b2976913dd27
+  version: 0.0.29+d3948b5c.d20260512
+  sha256: 72e714957cbbeee9f10f217df82489b406598f718da836d30fd5c224631f3603
   requires_dist:
+  - torch>=2.4
   - numpy
-  - torch==2.4.1
   requires_python: '>=3.7'
 - pypi: https://files.pythonhosted.org/packages/a8/a9/d23012099dc88ec69a29c6407b41d89681cb674c2043cd5b467c7e299c08/xyzservices-2026.3.0-py3-none-any.whl
   name: xyzservices

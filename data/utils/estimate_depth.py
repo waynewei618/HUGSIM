@@ -9,17 +9,36 @@ from unidepth.models import UniDepthV2
 from PIL import Image
 import json
 
+if os.environ.get("HUGSIM_DISABLE_XFORMERS") == "1":
+    try:
+        from unidepth.models.backbones.metadinov2 import attention as metadinov2_attention
+
+        metadinov2_attention.XFORMERS_AVAILABLE = False
+    except Exception:
+        pass
+
 
 def get_opts():
     parser = argparse.ArgumentParser()
     parser.add_argument('--out', type=str, required=True)
+    parser.add_argument(
+        '--model_path',
+        type=str,
+        default=os.environ.get(
+            "UNIDEPTH_MODEL_PATH",
+            "/workspace/HUGSIM/checkpoints/unidepth-v2-vitl14",
+        ),
+    )
     return parser.parse_args()
 
 if __name__ == '__main__':
     args = get_opts()
     
+    if not os.path.isdir(args.model_path):
+        raise FileNotFoundError(f"UniDepth checkpoint directory not found: {args.model_path}")
+
     print('loading depth model...')
-    model = UniDepthV2.from_pretrained("lpiccinelli/unidepth-v2-vitl14", force_download=True)
+    model = UniDepthV2.from_pretrained(args.model_path, local_files_only=True)
     model = model.to("cuda")
     model.eval()
     print("Depth model loaded")
