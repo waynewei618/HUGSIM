@@ -22,3 +22,4 @@
 
 - 编写 Markdown 文档时，环境配置与运行命令默认假设读者已进入 Docker 容器，直接写在容器内执行的命令，不加 `docker exec ubuntu_dev bash -c "..."` 外层包装。
 - 文档中路径使用 Docker 容器内路径（如 `/workspace/HUGSIM`、`/workspace/data/...`）。
+- 以后凡是修改环境、依赖版本、CUDA/PyTorch/xFormers 适配、模型权重路径、数据路径或运行流程时，都要同步检查 `docs/` 下相关文档是否需要适配更新；如果需要，应在同次变更中更新文档。

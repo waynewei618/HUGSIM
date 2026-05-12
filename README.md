@@ -37,11 +37,15 @@ First, install [pixi](https://pixi.sh/latest/):
 curl -fsSL https://pixi.sh/install.sh | sh
 ```
 
-As the repository depends on some packages that can only be installed from source code, and rely on pytorch and cuda to compile, the installation of pixi environment is seperated as **two steps**:
+As the repository depends on packages that are installed from local source code and compiled against PyTorch/CUDA, initialize submodules before installing the pixi environment:
 
-1. Comment the packages below `# install from source code` in `pixi.toml`, then run `pixi install` to install the packages from pypi.
-2. Uncomment the packages in the previous step, then run `pixi install` to install these packages from source code.
-3. Install apex (required by InverseForm) by running `pixi run install-apex`
+``` bash
+git submodule update --init --recursive
+pixi install
+pixi run install-apex
+```
+
+For the full environment setup, including xFormers version requirements for `torch 2.4.1+cu118` / CUDA 11.8, see [docs/pixi_environment_setup.md](docs/pixi_environment_setup.md).
 
 Change into the **pixi environment** by using the command `pixi shell`.
 

@@ -76,6 +76,28 @@ GPU compute capability 8.6
 
 PyPI 上默认解析到的 xFormers wheel 可能与 CUDA 版本不匹配。本项目已将 xFormers 作为本地子模块记录在 `external/xformers`，使用 `v0.0.28.post1` 对应提交 `d3948b5c`，并在本地针对 CUDA 11.8 编译。
 
+安装或重建 pixi 环境前，先确认 xFormers 位于适配 tag：
+
+```bash
+git -C external/xformers describe --tags --always --dirty
+git -C external/xformers rev-parse HEAD
+```
+
+预期输出包含：
+
+```text
+v0.0.28.post1
+d3948b5cb9a3711032a0ef0e036e809c7b08c1e0
+```
+
+如果是手动 clone 或本地分支状态不对，安装前切到适配 tag：
+
+```bash
+git -C external/xformers fetch --tags origin
+git -C external/xformers checkout v0.0.28.post1
+git -C external/xformers submodule update --init --recursive
+```
+
 验证命令：
 
 ```bash
