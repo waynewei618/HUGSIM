@@ -133,7 +133,7 @@ def main(input_dir, output_dir, model_path, has_edge=False, model_summary=False,
     
     #Dataloader
     print(input_dir)
-    val_loader = return_dataloader(num_workers, 1, input_dir)
+    val_loader = return_dataloader(num_workers, batch_size, input_dir)
     print(len(val_loader))
 
     #Loss function

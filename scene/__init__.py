@@ -12,6 +12,11 @@ import numpy as np
 import shutil
 
 
+def copy_if_different(src, dst):
+    if os.path.abspath(src) != os.path.abspath(dst):
+        shutil.copyfile(src, dst)
+
+
 def load_cameras(args, data_type, ignore_dynamic=False):
     train_cameras = {}
     test_cameras = {}
@@ -57,9 +62,9 @@ class Scene:
                 self.dynamic_gaussians[plan_id] = ObjModel(args.model.sh_degree, feat_mutable=False)
 
         if not self.loaded_iter:
-            shutil.copyfile(scene_info.ply_path, os.path.join(self.model_path, "input.ply"))
-            shutil.copyfile(os.path.join(args.source_path, 'meta_data.json'), os.path.join(self.model_path, 'meta_data.json'))
-            shutil.copyfile(os.path.join(args.source_path, 'ground_param.pkl'), os.path.join(self.model_path, 'ground_param.pkl'))
+            copy_if_different(scene_info.ply_path, os.path.join(self.model_path, "input.ply"))
+            copy_if_different(os.path.join(args.source_path, 'meta_data.json'), os.path.join(self.model_path, 'meta_data.json'))
+            copy_if_different(os.path.join(args.source_path, 'ground_param.pkl'), os.path.join(self.model_path, 'ground_param.pkl'))
 
         if shuffle:
             random.shuffle(scene_info.train_cameras)

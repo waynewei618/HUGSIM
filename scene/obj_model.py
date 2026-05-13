@@ -22,7 +22,7 @@ class ObjModel:
             actual_covariance = L @ L.transpose(1, 2)
             symm = strip_symmetric(actual_covariance)
             return symm
-        
+
         self.scaling_activation = torch.exp
         self.scaling_inverse_activation = torch.log
 
@@ -105,6 +105,7 @@ class ObjModel:
         self._opacity,
         self.spatial_lr_scale,
         ) = model_args
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
         if training_args is not None:
             self.training_setup(training_args)
         
@@ -564,4 +565,3 @@ class ObjModel:
     def add_densification_stats_grad(self, tensor_grad, update_filter):
         self.xyz_gradient_accum[update_filter] += torch.norm(tensor_grad[update_filter,:2], dim=-1, keepdim=True)
         self.denom[update_filter] += 1
-        

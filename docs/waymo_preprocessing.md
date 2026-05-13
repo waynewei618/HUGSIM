@@ -119,3 +119,7 @@ export WAYMO_OUT=<output_dir>
 ```
 
 这些变量分别覆盖输入目录、segment 文件名和输出目录。
+
+## 后续训练
+
+前处理完成后，ground/full 重建训练命令、暂停恢复方式、checkpoint 和本次 `1680166` 指标见 `docs/reconstruction_training.md`。

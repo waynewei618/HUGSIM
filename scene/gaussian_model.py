@@ -24,7 +24,7 @@ class GaussianModel:
             actual_covariance = L @ L.transpose(1, 2)
             symm = strip_symmetric(actual_covariance)
             return symm
-        
+
         self.scaling_activation = torch.exp
         self.scaling_inverse_activation = torch.log
 
@@ -121,10 +121,11 @@ class GaussianModel:
         ground_model_params,
         ) = model_args
         self.appearance_model.load_state_dict(appearance_state_dict, strict=False)
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
         if training_args is not None:
             self.training_setup(training_args)
         if ground_model_params is not None:
-            self.ground_model = GroundModel(self.max_sh_degree, model_args=ground_model_params)
+            self.ground_model = GroundModel(self.max_sh_degree, model_args=ground_model_params, finetune=True)
         
     @property
     def get_scaling(self):
@@ -633,4 +634,3 @@ class GaussianModel:
     def add_densification_stats_grad(self, tensor_grad, update_filter):
         self.xyz_gradient_accum[update_filter] += torch.norm(tensor_grad[update_filter,:2], dim=-1, keepdim=True)
         self.denom[update_filter] += 1
-        

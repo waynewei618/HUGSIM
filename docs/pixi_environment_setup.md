@@ -250,12 +250,26 @@ export HUGSIM_DISABLE_XFORMERS=1
 checkpoints/
 ├── distance_measures_regressor.pth
 ├── hrnet48_OCR_HMS_IF_checkpoint.pth
+├── huggingface/
+│   └── hub/
+├── torch/
+│   └── hub/
+│       └── checkpoints/
+│           └── alexnet-owt-7be5be79.pth
 └── unidepth-v2-vitl14/
     ├── config.json
     └── model.safetensors
 ```
 
-运行前检查默认权重路径是否存在于 `checkpoints/`。如果要临时使用其他位置，通过对应环境变量覆盖，不建议改回在线下载。
+运行前检查默认权重路径是否存在于 `checkpoints/`。如果要临时使用其他位置，通过对应环境变量覆盖，不建议改回在线下载：
+
+```bash
+export INVERSEFORM_MODEL_PATH=/path/to/hrnet48_OCR_HMS_IF_checkpoint.pth
+export INVERSEFORM_DISTANCE_MODEL_PATH=/path/to/distance_measures_regressor.pth
+export UNIDEPTH_MODEL_PATH=/path/to/unidepth-v2-vitl14
+```
+
+训练脚本和 `data/utils/estimate_depth.py` 会调用 `utils.model_cache.configure_model_cache()`，默认把 `torch.hub`、`HF_HOME`、`HF_HUB_CACHE` 和 `TRANSFORMERS_CACHE` 指向 `/workspace/HUGSIM/checkpoints/` 下的子目录。这样 LPIPS/AlexNet、HuggingFace 模型缓存不会重复下载到 home 目录。
 
 ## 结果
 

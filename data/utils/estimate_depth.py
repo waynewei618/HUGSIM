@@ -1,13 +1,23 @@
 import argparse
 import glob
-import os
 import json
+import os
+from pathlib import Path
+import sys
+
 import numpy as np
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
+from utils.model_cache import checkpoint_path, configure_model_cache
+
+configure_model_cache()
+
 import torch
 from tqdm import tqdm
 from unidepth.models import UniDepthV2
 from PIL import Image
-import json
 
 if os.environ.get("HUGSIM_DISABLE_XFORMERS") == "1":
     try:
@@ -26,7 +36,7 @@ def get_opts():
         type=str,
         default=os.environ.get(
             "UNIDEPTH_MODEL_PATH",
-            "/workspace/HUGSIM/checkpoints/unidepth-v2-vitl14",
+            checkpoint_path("unidepth-v2-vitl14"),
         ),
     )
     return parser.parse_args()

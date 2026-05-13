@@ -1,4 +1,8 @@
 import os
+from utils.model_cache import configure_model_cache
+
+configure_model_cache()
+
 import torch
 from utils.loss_utils import l1_loss, ssim_loss
 from gaussian_renderer import render_ground

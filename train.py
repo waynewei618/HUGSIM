@@ -1,4 +1,8 @@
 import os
+from utils.model_cache import configure_model_cache
+
+configure_model_cache()
+
 import torch
 from utils.loss_utils import l1_loss, ssim, ssim_loss
 from gaussian_renderer import render
@@ -31,23 +35,35 @@ def training(cfg):
 
     if cfg.semantic:
         semantic_ce = CrossEntropyLoss()
+    uc_opt_pos = cfg.get("uc_opt_pos", False)
+    resume_iteration = cfg.get("resume_iteration", 0)
     
     with open(os.path.join(cfg.source_path, 'ground_param.pkl'), 'rb') as f:
         cam_poses, _, _ = pickle.load(f)
         cam_positions = torch.tensor(cam_poses[:, :3, 3]).float().cuda()
 
-    first_iter = 0
+    first_iter = resume_iteration
     prepare_output(cfg)
     (ground_model_params, _) = torch.load(os.path.join(cfg.model_path, "ckpts", f"ground_chkpnt30000.pth"))
     gaussians = GaussianModel(cfg.model.sh_degree, feat_mutable=True, affine=cfg.affine, ground_args=ground_model_params)
     scene = Scene(cfg, gaussians, data_type=cfg.data_type)
+
+    if resume_iteration > 0:
+        print(f"Resuming from iteration {resume_iteration}")
+        model_params, loaded_iteration = torch.load(os.path.join(cfg.model_path, "ckpts", f"chkpnt{resume_iteration}.pth"))
+        scene.gaussians.restore(model_params, None)
+        first_iter = loaded_iteration
+        for iid, dynamic_gaussian in scene.dynamic_gaussians.items():
+            dynamic_path = os.path.join(cfg.model_path, "ckpts", f"dynamic_{iid}_chkpnt{resume_iteration}.pth")
+            dynamic_model_params, _ = torch.load(dynamic_path)
+            dynamic_gaussian.restore(dynamic_model_params, None)
     
     scene.gaussians.training_setup(cfg.opt)
     for iid, dynamic_gaussian in scene.dynamic_gaussians.items():
         dynamic_gaussian.training_setup(cfg.opt)
     
     if cfg.unicycle:
-        unicycles = create_unicycle_model(scene.getTrainCameras(), cfg.model_path, cfg.uc_fit_iter, cfg.uc_opt_pos, cfg.data_type)
+        unicycles = create_unicycle_model(scene.getTrainCameras(), cfg.model_path, cfg.uc_fit_iter, uc_opt_pos, cfg.data_type)
     else:
         unicycles = {}
 
@@ -137,7 +153,7 @@ def training(cfg):
             loss += distort_3d_loss
 
         reg_loss = 0
-        if cfg.uc_opt_pos and (len(unicycles) > 0) and (1000 < iteration) and (iteration < 15000):
+        if uc_opt_pos and (len(unicycles) > 0) and (1000 < iteration) and (iteration < 15000):
             for track_id, unicycle_pkg in unicycles.items():
                 model = unicycle_pkg['model']
                 reg_loss += 1e-3 * model.reg_loss() + 1e-4 * model.pos_loss()
@@ -195,7 +211,7 @@ def training(cfg):
                     dynamic_gaussian.optimizer.step()
                     dynamic_gaussian.optimizer.zero_grad(set_to_none = True)
 
-                if cfg.unicycle and cfg.uc_opt_pos and iteration > 1000:
+                if cfg.unicycle and uc_opt_pos and iteration > 1000:
                     for track_id, unicycle_pkg in unicycles.items():
                         unicycle_optimizer = unicycle_pkg['optimizer']
                         unicycle_optimizer.step()
@@ -301,12 +317,15 @@ def main():
     parser.add_argument("--data_cfg", type=str, default="./configs/nusc.yaml")
     parser.add_argument("--source_path", type=str, default="")
     parser.add_argument("--model_path", type=str, default="")
+    parser.add_argument("--resume_iteration", type=int, default=0)
     args = parser.parse_args()
     cfg = OmegaConf.merge(OmegaConf.load(args.base_cfg), OmegaConf.load(args.data_cfg))
     if len(args.source_path) > 0:
         cfg.source_path = args.source_path
     if len(args.model_path) > 0:
         cfg.model_path = args.model_path
+    if args.resume_iteration > 0:
+        cfg.resume_iteration = args.resume_iteration
         
     print("Optimizing " + args.model_path)
     training(cfg)

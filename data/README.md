@@ -1,6 +1,20 @@
 # Data Preparation
 
-To predict 2D semantic labels, the model weights of InverseForm is required. Please download the checkpoints from [here](https://github.com/Qualcomm-AI-research/InverseForm/tree/main) and place it in `--model_path /nas/users/hyzhou/model_zoo/hrnet48_OCR_HMS_IF_checkpoint.pth` with paths on your machine in `InverseForm/infer_*.sh` scripts.
+To predict 2D semantic labels, the model weights of InverseForm is required. Please download the checkpoints from [here](https://github.com/Qualcomm-AI-research/InverseForm/tree/main) and place them under `/workspace/HUGSIM/checkpoints/`.
+
+The default InverseForm checkpoint paths are:
+
+```bash
+/workspace/HUGSIM/checkpoints/hrnet48_OCR_HMS_IF_checkpoint.pth
+/workspace/HUGSIM/checkpoints/distance_measures_regressor.pth
+```
+
+The `InverseForm/infer_*.sh` scripts read the segmentation checkpoint path by default. To use temporary alternate paths, set:
+
+```bash
+export INVERSEFORM_MODEL_PATH=<path_to_hrnet48_OCR_HMS_IF_checkpoint.pth>
+export INVERSEFORM_DISTANCE_MODEL_PATH=<path_to_distance_measures_regressor.pth>
+```
 
 <details> <summary>KITTI-360</summary>
 

@@ -83,7 +83,7 @@ python utils/vis_bbox_2d.py \
 
 ### 3. 生成语义分割
 
-`data/InverseForm/infer_nuscenes.sh` 中的默认 `--model_path` 可能指向旧路径。可直接显式指定当前权重路径逐相机运行：
+`data/InverseForm/infer_nuscenes.sh` 默认读取 `/workspace/HUGSIM/checkpoints/hrnet48_OCR_HMS_IF_checkpoint.pth`，也可通过 `INVERSEFORM_MODEL_PATH` 临时覆盖。显式逐相机运行示例：
 
 ```bash
 cd /workspace/HUGSIM/data/InverseForm
@@ -255,3 +255,7 @@ ground_points (195915, 3)
 points3d (199800, 3)
 ground_param (180, 4, 4) 1.4972307012023558 180 [0, 1, 2]
 ```
+
+## 后续训练
+
+前处理完成后，ground/full 重建训练命令、暂停恢复方式、checkpoint 和本次 `scene-0038` 指标见 `docs/reconstruction_training.md`。

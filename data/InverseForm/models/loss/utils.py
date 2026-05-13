@@ -20,6 +20,11 @@ INVERSEFORM_MODULE = os.environ.get(
     "/workspace/HUGSIM/checkpoints/distance_measures_regressor.pth",
 )
 
+if not os.path.isfile(INVERSEFORM_MODULE):
+    raise FileNotFoundError(
+        f"InverseForm distance regressor checkpoint not found: {INVERSEFORM_MODULE}"
+    )
+
 
 def load_model_from_dict(model, pretrained):
     pretrained_dict = torch.load(pretrained, map_location=torch.device('cpu'))

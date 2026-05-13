@@ -7,6 +7,11 @@
 - 在 Docker 中，本项目位于 `/workspace/HUGSIM`。
 - 如果 `ubuntu_dev` 容器尚未创建，则先提示用户创建 `ubuntu_dev`，不要直接在宿主机环境执行这些程序。
 
+## GPU Usage
+
+- 本机有两张 GPU 卡；任何需要使用 GPU 的任务，执行前先在 Docker 容器内检查 GPU 占用情况。
+- 优先选择空闲或显存占用更低的 GPU，并通过 `CUDA_VISIBLE_DEVICES=<gpu_id>` 等方式显式指定使用的 GPU。
+
 ## Domestic Download Mirrors
 
 - 下载 GitHub 或其他外网资源时，优先在 Docker 内设置本地代理：
