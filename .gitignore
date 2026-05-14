@@ -1,6 +1,7 @@
 *.pyc
 .vscode
 .idea
+.claude/
 .DS_Store
 .nfs*
 __pycache__

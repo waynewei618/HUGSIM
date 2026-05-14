@@ -5,7 +5,7 @@
 ## 前提
 
 - 项目路径在容器内为 `/workspace/HUGSIM`。
-- `pixi` 已安装在容器内，版本为 `pixi 0.65.0`。
+- `pixi` 已安装在容器内，当前重建使用版本为 `pixi 0.68.1`。
 - 容器内 CUDA 编译工具可用，安装过程中使用的是 CUDA 11.8。
 - 所有命令均在 Docker 容器 `ubuntu_dev` 中执行。
 - 环境涉及的第三方源码库统一作为 Git submodule 放在 `external/` 目录，并由 `pixi.toml` 通过本地 `path` 依赖引用。
@@ -107,6 +107,19 @@ pixi install
 
 这一阶段会安装 PyPI/Conda 基础依赖，并从本地 `external/` 编译源码依赖，包括 `gsplat`、`pytorch3d`、`tinycudann`、`simple-knn` 等 CUDA/C++ 扩展。
 
+如果删除 `.pixi` 后重新安装时，遇到 `kornia-rs`、`nvidia-cufft-cu11`、`nvidia-cublas-cu11`、`nvidia-cudnn-cu11`、`open3d` 等大 wheel 下载或解压超时，可以保留已下载的 pixi/uv 缓存，重新删除半成品 `.pixi` 后降低并发并拉长超时时间：
+
+```bash
+rm -rf .pixi
+export UV_HTTP_TIMEOUT=1800
+export UV_HTTP_RETRIES=10
+export CUDA_VISIBLE_DEVICES=0
+export TORCH_CUDA_ARCH_LIST=8.6
+pixi install --frozen --concurrent-downloads 2
+```
+
+本次重建中，默认 `pixi install` 曾在 `kornia-rs==0.1.11` 和 `nvidia-cufft-cu11==10.9.0.58` 的下载/解压阶段超时；使用上述参数后安装完成。
+
 对应的 `pixi.toml` 源码依赖使用本地路径：
 
 ```toml
@@ -167,7 +180,7 @@ pytorch3d OK 0.7.8
 tinycudann OK
 apex OK
 simple_knn OK
-xformers OK 0.0.29+d3948b5c.d20260512
+xformers OK 0.0.29+d3948b5c.d20260513
 ```
 
 另外验证 `apex.normalization.FusedLayerNorm` 可导入：
@@ -197,7 +210,7 @@ pixi run python -m xformers.info | egrep "xFormers|build.cuda_version|build.torc
 预期关键输出：
 
 ```text
-xFormers 0.0.29+d3948b5c.d20260512
+xFormers 0.0.29+d3948b5c.d20260513
 memory_efficient_attention.cutlassF-pt: available
 gpu.compute_capability: 8.6
 build.cuda_version: 1108
