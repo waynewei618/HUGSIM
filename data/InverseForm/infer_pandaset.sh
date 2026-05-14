@@ -2,6 +2,7 @@
 cuda=$1
 out=$2
 model_path=${INVERSEFORM_MODEL_PATH:-/workspace/HUGSIM/checkpoints/hrnet48_OCR_HMS_IF_checkpoint.pth}
+batch_size=${INVERSEFORM_BATCH_SIZE:-4}
 
 export CUDA_VISIBLE_DEVICES=$cuda
 
@@ -18,6 +19,7 @@ do
     --input_dir ${out}/images/${cam}_camera \
     --output_dir ${out}/semantics/${cam}_camera \
     --model_path ${model_path} \
-    --arch "ocrnet.HRNet_Mscale" --hrnet_base "48" --has_edge True
+    --arch "ocrnet.HRNet_Mscale" --hrnet_base "48" --has_edge True \
+    --batch_size ${batch_size}
     echo Done
 done

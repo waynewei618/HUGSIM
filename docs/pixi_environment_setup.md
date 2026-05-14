@@ -201,6 +201,26 @@ apex import OK
 torch cuda available True
 ```
 
+## PandaSet devkit
+
+PandaSet 预处理入口 `data/panda/load.py` 依赖官方 PandaSet devkit 的 `pandaset` Python 包。该包不是普通 PyPI 包名，当前应从官方 GitHub 仓库的 `python` 子目录安装：
+
+```bash
+pixi run python -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple \
+  'git+https://github.com/scaleapi/pandaset-devkit.git#subdirectory=python'
+```
+
+安装后验证：
+
+```bash
+pixi run python - <<'PY'
+from pandaset import DataSet
+print("pandaset import ok")
+PY
+```
+
+如果 GitHub 连接不稳定，先按项目代理约定设置本地代理后重试；如果代理端口不可用，则取消代理后重试。该依赖只用于读取原始 PandaSet 数据并生成 `meta_data.json`、`images/` 等训练前输入。
+
 验证 xFormers 编译产物与当前 CUDA/PyTorch 匹配：
 
 ```bash

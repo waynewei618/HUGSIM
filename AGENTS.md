@@ -6,6 +6,7 @@
 - 使用的容器名称为 `ubuntu_dev`。
 - 在算力机和控制机上，本项目目录统一为：宿主机 `~/workspace/HUGSIM`，Docker 容器内 `/workspace/HUGSIM`。
 - 如果 `ubuntu_dev` 容器尚未创建，则先提示用户创建 `ubuntu_dev`，不要直接在宿主机环境执行这些程序。
+- 代码同步是例外：`git fetch`、`git pull`、`git push` 等 Git 远程同步操作不进入 Docker，直接在宿主机仓库执行。
 - 数据同步是例外：控制机与算力机之间使用 `ssh`、`rsync` 同步数据时，不需要进入 Docker 容器，应直接从控制机宿主机发起。
 - 如果控制机当前工作区或 Docker 路径下缺少数据，优先尝试从算力机同步过来；运行程序和文档命令仍默认使用 Docker 内路径，例如 `/workspace/data/...`、`/workspace/HUGSIM/...`。
 

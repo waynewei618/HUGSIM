@@ -187,6 +187,129 @@ pixi run python -u train.py \
 /workspace/HUGSIM/outputs/waymo/1680166/results.json
 ```
 
+## 本次 PandaSet 001 训练
+
+输入和输出目录相同：
+
+```bash
+/workspace/HUGSIM/outputs/pandaset/001
+```
+
+这是前处理输出目录，同时也作为重建训练目录。
+
+训练前相机加载检查结果：
+
+```text
+train_cams 390 test_cams 90 first front_camera_00
+```
+
+ground 训练命令：
+
+```bash
+cd /workspace/HUGSIM
+
+CUDA_VISIBLE_DEVICES=0 \
+pixi run python -u train_ground.py \
+    --data_cfg ./configs/pandaset.yaml \
+    --source_path /workspace/HUGSIM/outputs/pandaset/001 \
+    --model_path /workspace/HUGSIM/outputs/pandaset/001
+```
+
+full 训练命令：
+
+```bash
+cd /workspace/HUGSIM
+
+CUDA_VISIBLE_DEVICES=0 \
+pixi run python -u train.py \
+    --data_cfg ./configs/pandaset.yaml \
+    --source_path /workspace/HUGSIM/outputs/pandaset/001 \
+    --model_path /workspace/HUGSIM/outputs/pandaset/001
+```
+
+本次实际用一个后台队列串行执行 ground 和 full，两阶段共用日志：
+
+```text
+/workspace/HUGSIM/outputs/pandaset_001_reconstruction_20260513_200534.log
+```
+
+日志时间为容器内 UTC 时间。关键时间点如下：
+
+| 事件 | 时间 | 耗时 | 备注 |
+|---|---|---:|---|
+| reconstruction start | `2026-05-13T20:05:34+00:00` | - | 队列启动 |
+| ground start | `2026-05-13T20:05:35+00:00` | - | `train_ground.py` |
+| ground done | `2026-05-13T21:02:12+00:00` | 约 56 分 37 秒 | 生成 `ground_chkpnt30000.pth` |
+| full start | `2026-05-13T21:02:12+00:00` | - | `train.py` |
+| all done | `2026-05-14T07:08:45+00:00` | full 约 10 小时 6 分 33 秒 | `Training complete.` 后写出 `ALL_DONE` |
+| total | - | 约 11 小时 3 分 11 秒 | 从队列启动到结束 |
+
+### PandaSet 001 耗时观察
+
+主要耗时在 full 阶段：
+
+- ground 阶段整体不到 1 小时，日志进度条最终为 `30000/30000 [55:40<00:00, 8.98it/s]`
+- full 阶段约 10 小时，占总耗时约 90% 以上，日志进度条最终为 `30000/30000 [10:03:01<00:00, 1.21s/it]`
+- full 阶段单步速度多数采样在约 `1.0s/it` 到 `1.6s/it`，比 ground 明显更慢
+- `7000`、`15000`、`30000` checkpoint 点会出现进度条暂停，主要在写主 checkpoint、写 70 个 dynamic checkpoint、跑 test/train 验证
+- `30000` 到达后不会立即退出，还要写最终 checkpoint、验证、保存结果，最终日志出现 `Training complete.` 和 `ALL_DONE`
+
+本次相对最耗时的是 full 阶段正常迭代本身；checkpoint 和验证会造成局部停顿，但不是总耗时主因。
+
+### PandaSet 001 显存观察
+
+显存数值来自训练期间 `nvidia-smi` 监控采样，不代表精确峰值：
+
+| 阶段 | 观察到的 GPU 0 显存 | 备注 |
+|---|---:|---|
+| 启动前 | 约 42 MiB | GPU 0 基本空闲 |
+| ground | 约 1.6 GiB 到 1.9 GiB | 地面训练显存较低 |
+| full 初期 | 约 5.5 GiB 到 7.4 GiB | full 刚启动后显存明显上升 |
+| full 中后期 | 常见约 8 GiB 到 12 GiB | densification 后显存更高 |
+| full 采样最大值 | 约 13.8 GiB | `9070/30000` 附近采样到约 `13762 MiB` |
+| 结束后 | 约 42 MiB | 训练进程退出，GPU 0 释放 |
+
+本次显存压力主要来自 full 阶段，ground 阶段不是显存瓶颈。GPU 利用率在 checkpoint、验证、写文件阶段会短暂降到很低甚至 `0%`，只要进程仍在、日志继续出现 `Saving Checkpoint` / `Evaluating`，不应直接判断为卡死。
+
+### PandaSet 001 输出和 checkpoint
+
+完成后关键文件：
+
+```text
+/workspace/HUGSIM/outputs/pandaset/001/ckpts/ground_chkpnt30000.pth
+/workspace/HUGSIM/outputs/pandaset/001/ckpts/chkpnt30000.pth
+/workspace/HUGSIM/outputs/pandaset/001/results.json
+/workspace/HUGSIM/outputs/pandaset/001/ground/results.json
+```
+
+checkpoint 大小和数量：
+
+| 文件或类别 | 大小 / 数量 |
+|---|---:|
+| `ground_chkpnt30000.pth` | 约 164 MiB |
+| `chkpnt7000.pth` | 约 522 MiB |
+| `chkpnt15000.pth` | 约 729 MiB |
+| `chkpnt30000.pth` | 约 729 MiB |
+| `dynamic_*_chkpnt7000.pth` | 70 个 |
+| `dynamic_*_chkpnt15000.pth` | 70 个 |
+| `dynamic_*_chkpnt30000.pth` | 70 个 |
+
+每个 dynamic checkpoint 约 6.2 MiB。PandaSet 001 的动态对象数量明显多于本次 Waymo 训练记录中的 3 个 dynamic checkpoint，因此 full 阶段 checkpoint 写盘和文件数量更重。
+
+ground 最终指标：
+
+| split | PSNR | SSIM | LPIPS | L1 |
+|---|---:|---:|---:|---:|
+| test | 34.8362 | 0.9286 | 0.0914 | 0.0068 |
+| train | 35.5874 | 0.9318 | 0.0947 | 0.0063 |
+
+full 最终指标：
+
+| split | PSNR | SSIM | LPIPS | L1 |
+|---|---:|---:|---:|---:|
+| test | 26.1615 | 0.7427 | 0.2058 | 0.0311 |
+| train | 28.0743 | 0.8191 | 0.1835 | 0.0237 |
+
 ## 暂停和恢复训练
 
 ### 查看进度

@@ -84,6 +84,7 @@ def inference(val_loader, net, arch, loss_fn, output_dir, epoch=0, calc_metrics=
     len_dataset = len(val_loader)
     net.eval()
     val_loss = AverageMeter()
+    save_debug_images = os.environ.get("INVERSEFORM_SAVE_DEBUG", "0") == "1"
 
     for val_idx, data in enumerate(val_loader):
         input_images, labels, edge, img_names, _, raw_images = data 
@@ -99,12 +100,13 @@ def inference(val_loader, net, arch, loss_fn, output_dir, epoch=0, calc_metrics=
             composited_fn = img_names[i] + '_comp.png'
 
             np.save(os.path.join(output_dir, prediction_fn), prediction)
-            prediction_pil = colorize(prediction)
-            prediction_pil.save(os.path.join(output_dir, prediction_fn_rgb))
-            input_image = raw_images[i].detach().cpu()
-            input_image = standard_transforms.ToPILImage()(input_image)
-            composited = Image.blend(input_image, prediction_pil.convert("RGB"), 0.4)
-            composited.save(os.path.join(output_dir, composited_fn))
+            if save_debug_images:
+                prediction_pil = colorize(prediction)
+                prediction_pil.save(os.path.join(output_dir, prediction_fn_rgb))
+                input_image = raw_images[i].detach().cpu()
+                input_image = standard_transforms.ToPILImage()(input_image)
+                composited = Image.blend(input_image, prediction_pil.convert("RGB"), 0.4)
+                composited.save(os.path.join(output_dir, composited_fn))
         
             if val_idx+1 < len_dataset:
                 printProgressBar(val_idx + 1, len_dataset, 'Progress')
