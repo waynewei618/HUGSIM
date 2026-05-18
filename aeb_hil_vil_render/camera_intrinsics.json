@@ -1,0 +1,940 @@
+{
+  "source_directory": "/data/vtd/Data/Setups/es39_pilot_net_image_QZ/Config/ImageGenerator",
+  "camera_count": 13,
+  "coordinate_convention": {
+    "intrinsics": "OpenCV-style pinhole K, pixel origin at top-left, cx/cy relative to the camera viewport.",
+    "asymmetric_angles": "left/right/bottom/top are VTD angular extents in degrees from the optical axis.",
+    "cy_formula": "cy = height * tan(top) / (tan(bottom) + tan(top)); use height-cy if a bottom-left image origin is required."
+  },
+  "extraction_notes": [
+    "Only active Camera nodes in *.xml display configs under Config/ImageGenerator are included.",
+    "Backup files such as *.xml.bkp are ignored.",
+    "No radial/tangential distortion coefficients are specified in these Display XML files; post-process lookup tables are listed separately when found."
+  ],
+  "cameras": [
+    {
+      "camera_id": "AutoCfgDisplay/cam1",
+      "camera_name": "cam1",
+      "source_file": "AutoCfgDisplay.xml",
+      "render_surface": "mainRS",
+      "image_size": {
+        "width": 960,
+        "height": 540
+      },
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "width": 960,
+        "height": 540
+      },
+      "render_surface_size": {
+        "width": 960,
+        "height": 540
+      },
+      "projection": {
+        "type": "SymmetricPerspectiveAngles",
+        "near": 1.0,
+        "far": 1500.0,
+        "fov_x_deg": 60.0,
+        "fov_y_deg": 35.983
+      },
+      "intrinsics": {
+        "fx": 831.38438763,
+        "fy": 831.39421126,
+        "cx": 480.0,
+        "cy": 270.0,
+        "camera_matrix": [
+          [
+            831.38438763,
+            0.0,
+            480.0
+          ],
+          [
+            0.0,
+            831.39421126,
+            270.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_coefficients": null
+      },
+      "pose_from_config": {
+        "offset_hpr_deg": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "offset_xyz_m": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "camera_id": "Simple/cam1",
+      "camera_name": "cam1",
+      "source_file": "Simple/Simple1_Display.xml",
+      "render_surface": "Simple1",
+      "image_size": {
+        "width": 2896,
+        "height": 1876
+      },
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "width": 2896,
+        "height": 1876
+      },
+      "render_surface_size": {
+        "width": 800,
+        "height": 600
+      },
+      "projection": {
+        "type": "SymmetricPerspectiveAngles",
+        "near": 1.0,
+        "far": 1500.0,
+        "fov_x_deg": 114.0,
+        "fov_y_deg": 89.85
+      },
+      "intrinsics": {
+        "fx": 940.34219495,
+        "fy": 940.45889835,
+        "cx": 1448.0,
+        "cy": 938.0,
+        "camera_matrix": [
+          [
+            940.34219495,
+            0.0,
+            1448.0
+          ],
+          [
+            0.0,
+            940.45889835,
+            938.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_coefficients": null
+      },
+      "pose_from_config": {
+        "offset_hpr_deg": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "offset_xyz_m": [
+          0.0,
+          0.0,
+          1.5
+        ]
+      }
+    },
+    {
+      "camera_id": "dzy/front_30fov/cam1",
+      "camera_name": "cam1",
+      "source_file": "dzy/front_30fov/front_30fovCfgDisplay.xml",
+      "render_surface": "Front_30",
+      "image_size": {
+        "width": 3840,
+        "height": 2160
+      },
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "width": 3840,
+        "height": 2160
+      },
+      "render_surface_size": {
+        "width": 3840,
+        "height": 2160
+      },
+      "projection": {
+        "type": "AsymmetricPerspectiveAngles",
+        "near": 1.0,
+        "far": 2500.0,
+        "left_deg": 14.93219,
+        "right_deg": 15.24235,
+        "bottom_deg": 8.3965,
+        "top_deg": 8.84702,
+        "fov_x_deg": 30.17454,
+        "fov_y_deg": 17.24352
+      },
+      "intrinsics": {
+        "fx": 7122.07159051,
+        "fy": 7122.75744799,
+        "cx": 1899.32198697,
+        "cy": 1108.64727713,
+        "camera_matrix": [
+          [
+            7122.07159051,
+            0.0,
+            1899.32198697
+          ],
+          [
+            0.0,
+            7122.75744799,
+            1108.64727713
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_coefficients": null
+      },
+      "pose_from_config": {
+        "offset_hpr_deg": [
+          0.45319,
+          -1.46315,
+          0.25578
+        ],
+        "offset_xyz_m": [
+          -0.04219,
+          2.10443,
+          1.41733
+        ]
+      },
+      "postprocess_lookup_tables": [
+        {
+          "source_file": "dzy/front_30fov/front_30fovIGbase.xml",
+          "raw_path": "./dat/front30fov.dat",
+          "resolved_path": "/data/vtd/Data/Setups/es39_pilot_net_image_QZ/ImageGenerator/dat/front30fov.dat"
+        }
+      ]
+    },
+    {
+      "camera_id": "dzy/frontleft/cam1",
+      "camera_name": "cam1",
+      "source_file": "dzy/frontleft/FrontLeftCfgDisplay.xml",
+      "render_surface": "Remote1_FrontLeft",
+      "image_size": {
+        "width": 1920,
+        "height": 1280
+      },
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1280
+      },
+      "render_surface_size": {
+        "width": 1920,
+        "height": 1280
+      },
+      "projection": {
+        "type": "AsymmetricPerspectiveAngles",
+        "near": 1.0,
+        "far": 2500.0,
+        "left_deg": 55.13807,
+        "right_deg": 55.5356,
+        "bottom_deg": 43.78065,
+        "top_deg": 44.13404,
+        "fov_x_deg": 110.67367,
+        "fov_y_deg": 87.91469000000001
+      },
+      "intrinsics": {
+        "fx": 663.79813461,
+        "fy": 663.71536227,
+        "cx": 952.88095308,
+        "cy": 643.94999502,
+        "camera_matrix": [
+          [
+            663.79813461,
+            0.0,
+            952.88095308
+          ],
+          [
+            0.0,
+            663.71536227,
+            643.94999502
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_coefficients": null
+      },
+      "pose_from_config": {
+        "offset_hpr_deg": [
+          46.61263,
+          0.62189,
+          0.68319
+        ],
+        "offset_xyz_m": [
+          -0.9325,
+          2.31,
+          1.048
+        ]
+      },
+      "postprocess_lookup_tables": [
+        {
+          "source_file": "dzy/frontleft/FrontLeftIGbase.xml",
+          "raw_path": "./dat/frontleft.dat",
+          "resolved_path": "/data/vtd/Data/Setups/es39_pilot_net_image_QZ/ImageGenerator/dat/frontleft.dat"
+        }
+      ]
+    },
+    {
+      "camera_id": "dzy/frontright/cam1",
+      "camera_name": "cam1",
+      "source_file": "dzy/frontright/FrontRightCfgDisplay.xml",
+      "render_surface": "FrontRight",
+      "image_size": {
+        "width": 1920,
+        "height": 1280
+      },
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1280
+      },
+      "render_surface_size": {
+        "width": 1920,
+        "height": 1280
+      },
+      "projection": {
+        "type": "AsymmetricPerspectiveAngles",
+        "near": 1.0,
+        "far": 2500.0,
+        "left_deg": 55.35507,
+        "right_deg": 55.42507,
+        "bottom_deg": 43.86984,
+        "top_deg": 44.15994,
+        "fov_x_deg": 110.78013999999999,
+        "fov_y_deg": 88.02978
+      },
+      "intrinsics": {
+        "fx": 662.50446135,
+        "fy": 662.38661043,
+        "cx": 958.74553443,
+        "cy": 643.24235103,
+        "camera_matrix": [
+          [
+            662.50446135,
+            0.0,
+            958.74553443
+          ],
+          [
+            0.0,
+            662.38661043,
+            643.24235103
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_coefficients": null
+      },
+      "pose_from_config": {
+        "offset_hpr_deg": [
+          -49.03073,
+          -2.2998,
+          2.95658
+        ],
+        "offset_xyz_m": [
+          0.9325,
+          2.31,
+          1.048
+        ]
+      },
+      "postprocess_lookup_tables": [
+        {
+          "source_file": "dzy/frontright/FrontRightIGbase.xml",
+          "raw_path": "./dat/frontright.dat",
+          "resolved_path": "/data/vtd/Data/Setups/es39_pilot_net_image_QZ/ImageGenerator/dat/frontright.dat"
+        }
+      ]
+    },
+    {
+      "camera_id": "dzy/rear/cam1",
+      "camera_name": "cam1",
+      "source_file": "dzy/rear/RearCfgDisplay.xml",
+      "render_surface": "Rear_view",
+      "image_size": {
+        "width": 1920,
+        "height": 1280
+      },
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1280
+      },
+      "render_surface_size": {
+        "width": 1920,
+        "height": 1280
+      },
+      "projection": {
+        "type": "AsymmetricPerspectiveAngles",
+        "near": 0.001,
+        "far": 2500.0,
+        "left_deg": 31.93155,
+        "right_deg": 31.72036,
+        "bottom_deg": 22.4804,
+        "top_deg": 22.47145,
+        "fov_x_deg": 63.65191,
+        "fov_y_deg": 44.95185
+      },
+      "intrinsics": {
+        "fx": 1546.74925479,
+        "fy": 1546.93483654,
+        "cx": 963.94873139,
+        "cy": 639.85849863,
+        "camera_matrix": [
+          [
+            1546.74925479,
+            0.0,
+            963.94873139
+          ],
+          [
+            0.0,
+            1546.93483654,
+            639.85849863
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_coefficients": null
+      },
+      "pose_from_config": {
+        "offset_hpr_deg": [
+          179.49999,
+          0.0,
+          0.0
+        ],
+        "offset_xyz_m": [
+          -0.0,
+          0.039,
+          1.449
+        ]
+      },
+      "postprocess_lookup_tables": [
+        {
+          "source_file": "dzy/rear/RearIGbase.xml",
+          "raw_path": "./dat/rear.dat",
+          "resolved_path": "/data/vtd/Data/Setups/es39_pilot_net_image_QZ/ImageGenerator/dat/rear.dat"
+        }
+      ]
+    },
+    {
+      "camera_id": "dzy/rearleft/cam1",
+      "camera_name": "cam1",
+      "source_file": "dzy/rearleft/RearLeftCfgDisplay.xml",
+      "render_surface": "RearLeft",
+      "image_size": {
+        "width": 1920,
+        "height": 1280
+      },
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1280
+      },
+      "render_surface_size": {
+        "width": 1920,
+        "height": 1280
+      },
+      "projection": {
+        "type": "AsymmetricPerspectiveAngles",
+        "near": 1.0,
+        "far": 2500.0,
+        "left_deg": 55.39917,
+        "right_deg": 55.06581,
+        "bottom_deg": 43.81257,
+        "top_deg": 43.87918,
+        "fov_x_deg": 110.46498,
+        "fov_y_deg": 87.69175
+      },
+      "intrinsics": {
+        "fx": 666.39302015,
+        "fy": 666.3166388,
+        "cx": 965.96173761,
+        "cy": 640.74464487,
+        "camera_matrix": [
+          [
+            666.39302015,
+            0.0,
+            965.96173761
+          ],
+          [
+            0.0,
+            666.3166388,
+            640.74464487
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_coefficients": null
+      },
+      "pose_from_config": {
+        "offset_hpr_deg": [
+          130.1742,
+          2.1204,
+          -0.95294
+        ],
+        "offset_xyz_m": [
+          -0.9675,
+          2.43,
+          0.84
+        ]
+      },
+      "postprocess_lookup_tables": [
+        {
+          "source_file": "dzy/rearleft/RearLeftIGbase.xml",
+          "raw_path": "./dat/rearleft.dat",
+          "resolved_path": "/data/vtd/Data/Setups/es39_pilot_net_image_QZ/ImageGenerator/dat/rearleft.dat"
+        }
+      ]
+    },
+    {
+      "camera_id": "dzy/rearright/cam1",
+      "camera_name": "cam1",
+      "source_file": "dzy/rearright/RearRightCfgDisplay.xml",
+      "render_surface": "RearRight",
+      "image_size": {
+        "width": 1920,
+        "height": 1280
+      },
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1280
+      },
+      "render_surface_size": {
+        "width": 1920,
+        "height": 1280
+      },
+      "projection": {
+        "type": "AsymmetricPerspectiveAngles",
+        "near": 1.0,
+        "far": 2500.0,
+        "left_deg": 55.51461,
+        "right_deg": 55.36762,
+        "bottom_deg": 43.96195,
+        "top_deg": 44.17978,
+        "fov_x_deg": 110.88222999999999,
+        "fov_y_deg": 88.14173
+      },
+      "intrinsics": {
+        "fx": 661.24003258,
+        "fy": 661.09648253,
+        "cx": 962.63598273,
+        "cy": 642.43445888,
+        "camera_matrix": [
+          [
+            661.24003258,
+            0.0,
+            962.63598273
+          ],
+          [
+            0.0,
+            661.09648253,
+            642.43445888
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_coefficients": null
+      },
+      "pose_from_config": {
+        "offset_hpr_deg": [
+          -130.78079,
+          1.21501,
+          1.3661
+        ],
+        "offset_xyz_m": [
+          0.9675,
+          2.43,
+          0.84
+        ]
+      },
+      "postprocess_lookup_tables": [
+        {
+          "source_file": "dzy/rearright/RearRightIGbase.xml",
+          "raw_path": "./dat/rearright.dat",
+          "resolved_path": "/data/vtd/Data/Setups/es39_pilot_net_image_QZ/ImageGenerator/dat/rearright.dat"
+        }
+      ]
+    },
+    {
+      "camera_id": "fisheye_front/cam1",
+      "camera_name": "cam1",
+      "source_file": "fisheye_front/fisheye_front_CfgDisplay.xml",
+      "render_surface": "fisheye_front",
+      "image_size": {
+        "width": 1920,
+        "height": 1536
+      },
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1536
+      },
+      "render_surface_size": {
+        "width": 1920,
+        "height": 1536
+      },
+      "projection": {
+        "type": "SymmetricPerspectiveAngles",
+        "near": 1.0,
+        "far": 2500.0,
+        "fov_x_deg": 124.20573,
+        "fov_y_deg": 113.00123
+      },
+      "intrinsics": {
+        "fx": 508.23237609,
+        "fy": 508.31625611,
+        "cx": 960.0,
+        "cy": 768.0,
+        "camera_matrix": [
+          [
+            508.23237609,
+            0.0,
+            960.0
+          ],
+          [
+            0.0,
+            508.31625611,
+            768.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_coefficients": null
+      },
+      "pose_from_config": {
+        "offset_hpr_deg": [
+          0.0,
+          15.0,
+          0.0
+        ],
+        "offset_xyz_m": [
+          0.001,
+          3.758,
+          0.653
+        ]
+      },
+      "postprocess_lookup_tables": [
+        {
+          "source_file": "fisheye_front/fisheye_front_IGbase.xml",
+          "raw_path": "./dat/fisheye_front.dat",
+          "resolved_path": "/data/vtd/Data/Setups/es39_pilot_net_image_QZ/ImageGenerator/dat/fisheye_front.dat"
+        }
+      ]
+    },
+    {
+      "camera_id": "fisheye_left/cam1",
+      "camera_name": "cam1",
+      "source_file": "fisheye_left/fisheye_left_CfgDisplay.xml",
+      "render_surface": "fisheye_left",
+      "image_size": {
+        "width": 1920,
+        "height": 1536
+      },
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1536
+      },
+      "render_surface_size": {
+        "width": 1920,
+        "height": 1536
+      },
+      "projection": {
+        "type": "SymmetricPerspectiveAngles",
+        "near": 0.001,
+        "far": 2500.0,
+        "fov_x_deg": 124.09465,
+        "fov_y_deg": 112.88014
+      },
+      "intrinsics": {
+        "fx": 509.42438728,
+        "fy": 509.48414502,
+        "cx": 960.0,
+        "cy": 768.0,
+        "camera_matrix": [
+          [
+            509.42438728,
+            0.0,
+            960.0
+          ],
+          [
+            0.0,
+            509.48414502,
+            768.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_coefficients": null
+      },
+      "pose_from_config": {
+        "offset_hpr_deg": [
+          90.0,
+          -25.9,
+          0.0
+        ],
+        "offset_xyz_m": [
+          -1.075,
+          2.041,
+          1.017
+        ]
+      },
+      "postprocess_lookup_tables": [
+        {
+          "source_file": "fisheye_left/fisheye_left_IGbase.xml",
+          "raw_path": "./dat/fisheye_left.dat",
+          "resolved_path": "/data/vtd/Data/Setups/es39_pilot_net_image_QZ/ImageGenerator/dat/fisheye_left.dat"
+        }
+      ]
+    },
+    {
+      "camera_id": "fisheye_rear/cam1",
+      "camera_name": "cam1",
+      "source_file": "fisheye_rear/fisheye_rear_CfgDisplay.xml",
+      "render_surface": "fisheye_rear",
+      "image_size": {
+        "width": 1920,
+        "height": 1536
+      },
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1536
+      },
+      "render_surface_size": {
+        "width": 1920,
+        "height": 1536
+      },
+      "projection": {
+        "type": "SymmetricPerspectiveAngles",
+        "near": 0.001,
+        "far": 2500.0,
+        "fov_x_deg": 124.3684,
+        "fov_y_deg": 113.16008
+      },
+      "intrinsics": {
+        "fx": 506.48895261,
+        "fy": 506.78665407,
+        "cx": 960.0,
+        "cy": 768.0,
+        "camera_matrix": [
+          [
+            506.48895261,
+            0.0,
+            960.0
+          ],
+          [
+            0.0,
+            506.78665407,
+            768.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_coefficients": null
+      },
+      "pose_from_config": {
+        "offset_hpr_deg": [
+          179.90875,
+          15.0,
+          0.0
+        ],
+        "offset_xyz_m": [
+          0.0001,
+          -1.145,
+          0.586
+        ]
+      },
+      "postprocess_lookup_tables": [
+        {
+          "source_file": "fisheye_rear/fisheye_rear_IGbase.xml",
+          "raw_path": "./dat/fisheye_rear.dat",
+          "resolved_path": "/data/vtd/Data/Setups/es39_pilot_net_image_QZ/ImageGenerator/dat/fisheye_rear.dat"
+        }
+      ]
+    },
+    {
+      "camera_id": "fisheye_right/cam1",
+      "camera_name": "cam1",
+      "source_file": "fisheye_right/fisheye_right_CfgDisplay.xml",
+      "render_surface": "fisheye_right",
+      "image_size": {
+        "width": 1920,
+        "height": 1536
+      },
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1536
+      },
+      "render_surface_size": {
+        "width": 1920,
+        "height": 1536
+      },
+      "projection": {
+        "type": "SymmetricPerspectiveAngles",
+        "near": 0.001,
+        "far": 2500.0,
+        "fov_x_deg": 124.0628,
+        "fov_y_deg": 112.83864
+      },
+      "intrinsics": {
+        "fx": 509.76639914,
+        "fy": 509.88478096,
+        "cx": 960.0,
+        "cy": 768.0,
+        "camera_matrix": [
+          [
+            509.76639914,
+            0.0,
+            960.0
+          ],
+          [
+            0.0,
+            509.88478096,
+            768.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_coefficients": null
+      },
+      "pose_from_config": {
+        "offset_hpr_deg": [
+          -90.0,
+          -25.9,
+          0.0
+        ],
+        "offset_xyz_m": [
+          1.075,
+          2.041,
+          1.017
+        ]
+      },
+      "postprocess_lookup_tables": [
+        {
+          "source_file": "fisheye_right/fisheye_right_IGbase.xml",
+          "raw_path": "./dat/fisheye_right.dat",
+          "resolved_path": "/data/vtd/Data/Setups/es39_pilot_net_image_QZ/ImageGenerator/dat/fisheye_right.dat"
+        }
+      ]
+    },
+    {
+      "camera_id": "front_120/cam1",
+      "camera_name": "cam1",
+      "source_file": "front_120/front_120_display.xml",
+      "render_surface": "mainRS",
+      "image_size": {
+        "width": 3840,
+        "height": 2160
+      },
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "width": 3840,
+        "height": 2160
+      },
+      "render_surface_size": {
+        "width": 3840,
+        "height": 2160
+      },
+      "projection": {
+        "type": "AsymmetricPerspectiveAngles",
+        "near": 1.0,
+        "far": 2500.0,
+        "left_deg": 66.60195,
+        "right_deg": 66.65471,
+        "bottom_deg": 52.43017,
+        "top_deg": 52.5119,
+        "fov_x_deg": 133.25666,
+        "fov_y_deg": 104.94207
+      },
+      "intrinsics": {
+        "fx": 829.73019163,
+        "fy": 829.57979028,
+        "cx": 1917.57239408,
+        "cy": 1081.59448808,
+        "camera_matrix": [
+          [
+            829.73019163,
+            0.0,
+            1917.57239408
+          ],
+          [
+            0.0,
+            829.57979028,
+            1081.59448808
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_coefficients": null
+      },
+      "pose_from_config": {
+        "offset_hpr_deg": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "offset_xyz_m": [
+          -0.0,
+          1.84,
+          1.345
+        ]
+      },
+      "postprocess_lookup_tables": [
+        {
+          "source_file": "front_120/front_120_IGbase.xml",
+          "raw_path": "./dat/front.dat",
+          "resolved_path": "/data/vtd/Data/Setups/es39_pilot_net_image_QZ/ImageGenerator/dat/front.dat"
+        }
+      ]
+    }
+  ]
+}

@@ -1,3 +1,10 @@
+import sys
+from pathlib import Path
+
+HUGSIM_SPLAT_PATH = Path(__file__).resolve().parents[1] / "external" / "HUGSIM_splat"
+if HUGSIM_SPLAT_PATH.exists():
+    sys.path.insert(0, str(HUGSIM_SPLAT_PATH))
+
 import torch
 from scene.gaussian_model import GaussianModel
 from scene.ground_model import GroundModel
@@ -68,8 +75,20 @@ def unicycle_b2w(timestamp, model):
     return rt
 
 
-def render(viewpoint:Camera, prev_viewpoint:Camera, pc:GaussianModel, dynamic_gaussians:dict, 
-            unicycles:dict, bg_color:Tensor, render_optical=False, planning=[]):
+def render(
+    viewpoint: Camera,
+    prev_viewpoint: Camera,
+    pc: GaussianModel,
+    dynamic_gaussians: dict,
+    unicycles: dict,
+    bg_color: Tensor,
+    render_optical=False,
+    planning=[],
+    near_plane=0.01,
+    far_plane=500,
+    max_radius_clip=0.0,
+    appearance_c2w=None,
+):
     """
     Render the scene. 
     
@@ -139,7 +158,8 @@ def render(viewpoint:Camera, prev_viewpoint:Camera, pc:GaussianModel, dynamic_ga
         delta_uv = torch.zeros_like(xyz)
 
     if pc.affine:
-        cam_xyz, cam_dir = viewpoint.c2w[:3, 3].cuda(), viewpoint.c2w[:3, 2].cuda()
+        affine_c2w = appearance_c2w if appearance_c2w is not None else viewpoint.c2w
+        cam_xyz, cam_dir = affine_c2w[:3, 3].cuda(), affine_c2w[:3, 2].cuda()
         o_enc = pc.pos_enc(cam_xyz[None, :] / 60)
         d_enc = pc.dir_enc(cam_dir[None, :])
         appearance = pc.appearance_model(torch.cat([o_enc, d_enc], dim=1)) * 1e-1
@@ -165,8 +185,9 @@ def render(viewpoint:Camera, prev_viewpoint:Camera, pc:GaussianModel, dynamic_ga
         flows= delta_uv[None, ...],
         render_mode=render_mode,
         sh_degree=pc.active_sh_degree,
-        near_plane=0.01,
-        far_plane=500,
+        near_plane=near_plane,
+        far_plane=far_plane,
+        max_radius_clip=max_radius_clip,
         packed=False,
         backgrounds=bg_color[None, :],
     )

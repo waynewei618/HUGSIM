@@ -55,14 +55,14 @@ if [[ ! -f "$OUTPUT_PATH/aeb_front_original.mp4" ]]; then
   exit 1
 fi
 
-pixi run python aeb_hil_vil_render/render_front_view.py \
-  "$SCENE_PATH" \
-  "$OUTPUT_PATH/aeb_trajectory.json" \
-  "$OUTPUT_PATH/aeb_camera.json"
-
 pixi run python aeb_hil_vil_render/compose_compare_video.py \
+  "$SCENE_PATH" \
   "$OUTPUT_PATH/aeb_front_original.mp4" \
-  "$OUTPUT_PATH/aeb_front_rendered.mp4" \
-  "$OUTPUT_PATH/aeb_front_compare.mp4"
+  "$OUTPUT_PATH/aeb_trajectory.json" \
+  "$OUTPUT_PATH/aeb_camera.json" \
+  "$OUTPUT_PATH/aeb_front_compare.mp4" \
+  --real-camera-output "$OUTPUT_PATH/aeb_real_front_120_rendered.mp4"
 
 echo "Comparison video: $OUTPUT_PATH/aeb_front_compare.mp4"
+echo "Real vehicle AEB front render: $OUTPUT_PATH/aeb_real_front_120_rendered.mp4"
+echo "Real vehicle AEB render timing: $OUTPUT_PATH/aeb_real_front_120_rendered.timing.csv"
