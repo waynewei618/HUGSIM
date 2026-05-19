@@ -175,6 +175,13 @@ pixi run python aeb_hil_vil_render/compose_compare_video.py \
   --real-camera-output /workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166/aeb_real_front_120_rendered.mp4
 ```
 
+默认 `render_camera()` 不分块渲染，即 `--render-tile-rows 1 --render-tile-cols 1`。当前超广角前视渲染基线使用 `4x4` 分块和 guard band 羽化融合：
+
+```bash
+--render-tile-rows 4 \
+--render-tile-cols 4
+```
+
 实车相机渲染会默认写出同名 timing CSV：
 
 ```text

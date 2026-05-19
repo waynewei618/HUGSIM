@@ -17,6 +17,7 @@ sys.path.append(str(REPO_ROOT))
 from aeb_hil_vil_render.gaussian_scene_renderer import (
     GaussianSceneRenderer,
     as_camera_intrinsics,
+    as_positive_int,
     as_transform,
 )
 
@@ -51,6 +52,22 @@ def parse_args():
     parser.add_argument(
         "--real-camera-timing-output",
         help="Optional CSV path for per-frame real vehicle camera render timing.",
+    )
+    parser.add_argument(
+        "--render-tile-rows",
+        "--tile-rows",
+        dest="render_tile_rows",
+        type=int,
+        default=1,
+        help="Split each render_camera image into this many row tiles. Default: 1.",
+    )
+    parser.add_argument(
+        "--render-tile-cols",
+        "--tile-cols",
+        dest="render_tile_cols",
+        type=int,
+        default=1,
+        help="Split each render_camera image into this many column tiles. Default: 1.",
     )
     return parser.parse_args()
 
@@ -343,6 +360,8 @@ def write_rendered_camera_video(
     timing_records=None,
     near_plane=None,
     far_plane=None,
+    render_tile_rows=1,
+    render_tile_cols=1,
 ):
     output_video = Path(output_video)
     output_video.parent.mkdir(parents=True, exist_ok=True)
@@ -358,7 +377,13 @@ def write_rendered_camera_video(
     try:
         for camera_input in tqdm(camera_inputs, desc=desc):
             render_start = time.perf_counter()
-            image = renderer.render_camera(**camera_input, near_plane=near_plane, far_plane=far_plane)
+            image = renderer.render_camera(
+                **camera_input,
+                near_plane=near_plane,
+                far_plane=far_plane,
+                tile_rows=render_tile_rows,
+                tile_cols=render_tile_cols,
+            )
             render_camera_ms = (time.perf_counter() - render_start) * 1000.0
 
             postprocess_start = time.perf_counter()
@@ -397,7 +422,11 @@ def compose_reconstruction_compare_video(
     real_camera_id=REAL_VEHICLE_FRONT_CAMERA_ID,
     real_camera_output=None,
     real_camera_timing_output=None,
+    render_tile_rows=1,
+    render_tile_cols=1,
 ):
+    render_tile_rows = as_positive_int(render_tile_rows, "render_tile_rows")
+    render_tile_cols = as_positive_int(render_tile_cols, "render_tile_cols")
     trajectory = load_json(trajectory_path)
     camera = load_json(camera_path)
     frames = trajectory["frames"]
@@ -428,7 +457,11 @@ def compose_reconstruction_compare_video(
             total=len(camera_inputs),
             desc="Rendering and composing compare video",
         ):
-            rendered_frame = renderer.render_camera(**camera_input)
+            rendered_frame = renderer.render_camera(
+                **camera_input,
+                tile_rows=render_tile_rows,
+                tile_cols=render_tile_cols,
+            )
             writer.append_data(side_by_side_frame(original_frame, rendered_frame))
             frame_count += 1
     finally:
@@ -459,6 +492,8 @@ def compose_reconstruction_compare_video(
             timing_records=timing_records,
             near_plane=real_near_plane,
             far_plane=real_far_plane,
+            render_tile_rows=render_tile_rows,
+            render_tile_cols=render_tile_cols,
         )
         timing_output = (
             Path(real_camera_timing_output)
@@ -481,6 +516,8 @@ def main():
         args.real_camera_id,
         Path(args.real_camera_output).resolve() if args.real_camera_output else None,
         Path(args.real_camera_timing_output).resolve() if args.real_camera_timing_output else None,
+        args.render_tile_rows,
+        args.render_tile_cols,
     )
 
 
