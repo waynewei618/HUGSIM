@@ -49,8 +49,8 @@ outputs/aeb_hil_vil_render/<dataset>/<scene>/aeb_trajectory_plots.png
 
 其中 `aeb_front_compare.mp4` 左侧为原采集图片合成视频，右侧为 3DGS 渲染视频，用于快速观察重建效果。
 `aeb_real_front_120_rendered.mp4` 使用 `camera_intrinsics.json` 中 `camera_id` 为 `front_120/cam1` 的实车 AEB 前视相机内参渲染，外参沿用 `aeb_camera.json` 中的 `camera_to_ego`。
-对 `front_120/cam1` 这类超广角相机，程序会读取 VTD 配置中的 `near/far`，按 FOV 自动分块渲染并做 overlap 融合，然后使用 `postprocess_lookup_tables` 中的 `front.dat` 做最终查表畸变映射。
-`aeb_real_front_120_rendered.timing.csv` 记录实车相机每帧渲染耗时，包括 Camera 构造、CUDA render、uint8/LUT 后处理和总耗时。
+对 `front_120/cam1` 这类超广角相机，当前程序只读取 VTD 配置中的 `near/far`，然后按该相机的 pinhole 内参直接渲染；不再自动分块、不做 ray projection，也不使用 `postprocess_lookup_tables` 做查表畸变映射。
+`aeb_real_front_120_rendered.timing.csv` 记录实车相机每帧渲染耗时，包括 Camera 构造、CUDA render、uint8 后处理和总耗时。
 `aeb_trajectory_plots.png` 将里程-高度和水平面 x-y 轨迹绘制在同一张图中；当前 HUGSIM 场景坐标里高度使用 scene `y`，水平面 x-y 使用 `(scene z, -scene x)`。
 
 ## 1. 从训练场景提取输入
@@ -94,8 +94,7 @@ image = renderer.render_image(
 )
 ```
 
-其中 `image` 是 `uint8` RGB 图像。`__init__` 只加载一次 `cfg.yaml`、`scene.pth` 和 `dynamic_*.pth`；后续每帧只传相机内参、相机到世界坐标系的外参、分辨率和可选动态物体变换。
-对超广角实车相机，`CameraRenderRequest` 还支持可选的 `near_plane`、`far_plane`、`tile_width`、`tile_height` 和 `tile_overlap`，用于避免单次超广角 pinhole rasterization 在视野边缘产生过大的 2D splat 拉伸。
+其中 `image` 是 `uint8` RGB 图像。`__init__` 只加载一次 `cfg.yaml`、`scene.pth` 和 `dynamic_*.pth`；后续每帧只传相机内参、相机到世界坐标系的外参、分辨率、`near/far` 和可选动态物体变换。当前核心渲染类保持单个 pinhole 相机渲染，不包含超广角分块、ray map 或 lookup table 后处理。
 
 ## 3. AEB 轨迹和相机标定
 

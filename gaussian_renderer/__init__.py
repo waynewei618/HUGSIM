@@ -1,4 +1,5 @@
 import sys
+import inspect
 from pathlib import Path
 
 HUGSIM_SPLAT_PATH = Path(__file__).resolve().parents[1] / "external" / "HUGSIM_splat"
@@ -12,6 +13,14 @@ from gsplat.rendering import rasterization
 import roma
 from scene.cameras import Camera
 from torch import Tensor
+
+RASTERIZATION_PARAMETERS = set(inspect.signature(rasterization).parameters)
+
+
+def call_rasterization(**kwargs):
+    if "max_radius_clip" not in RASTERIZATION_PARAMETERS:
+        kwargs.pop("max_radius_clip", None)
+    return rasterization(**kwargs)
 
 def euler2matrix(yaw):
     return torch.tensor([
@@ -171,7 +180,7 @@ def render(
     else:
         render_mode = 'RGB+ED+S'
         
-    renders, render_alphas, info = rasterization(
+    renders, render_alphas, info = call_rasterization(
         means=xyz,
         quats=rotations,
         scales=scales,

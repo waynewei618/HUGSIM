@@ -123,6 +123,12 @@ pixi install --frozen --concurrent-downloads 2
 对应的 `pixi.toml` 源码依赖使用本地路径：
 
 ```toml
+[pypi-options]
+no-build-isolation = ["gsplat", "pytorch3d", "tinycudann", "simple-knn", "xformers"]
+
+[pypi-options.dependency-overrides]
+xformers = "*"
+
 hugsim-env = { path = "./sim", editable = true }
 simple-knn = { path = "./external/simple-knn", editable = false }
 gsplat = { path = "./external/HUGSIM_splat", editable = false }
@@ -135,6 +141,17 @@ simple-waymo-open-dataset-reader = { path = "./external/simple-waymo-open-datase
 pytorch3d = { path = "./external/pytorch3d", editable = false }
 nuscenes-devkit = { path = "./external/nuscenes-devkit", editable = false }
 xformers = { path = "./external/xformers", editable = false }
+```
+
+`external/UniDepth/requirements.txt` 会声明 `xformers>=0.0.26`，但 `xformers` 在本项目中由
+`pixi.toml` 显式指定为 `external/xformers` 本地源码路径。`dependency-overrides` 中的
+`xformers = "*"` 用于让 Pixi/uv 忽略 UniDepth 传递依赖里的版本范围，直接采用项目显式声明的
+本地 `external/xformers`，否则 `pixi install --locked` 可能把本地 path 包视为 `0a0.dev0` 并误判锁文件过期。
+
+默认环境恢复或校验时可使用：
+
+```bash
+pixi install --locked
 ```
 
 ### 4. 安装 apex

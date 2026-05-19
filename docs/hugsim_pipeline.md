@@ -92,7 +92,7 @@ ${export_path}/vis/scene.splat
 
 ## 5. 重建效果对比视频
 
-离线仿真准备完成后，可单独生成前视原采集视频和 3DGS 渲染视频的左右对比，用于观察重建效果。
+离线仿真准备完成后，可单独生成前视原采集视频和逐帧 3DGS 渲染图像的左右对比，用于观察重建效果。
 
 输入为已导出的场景目录和原始图片所在路径：
 
@@ -124,8 +124,9 @@ outputs/aeb_hil_vil_render/<dataset>/<scene>/
 aeb_trajectory.json          # 自车位姿轨迹，含 position、rotation、mileage
 aeb_camera.json              # 前视相机内参、外参、分辨率、fps
 aeb_front_original.mp4       # 原采集前视视频
-aeb_front_rendered.mp4       # 3DGS 渲染前视视频
 aeb_front_compare.mp4        # 左原图、右渲染的对比视频
+aeb_real_front_120_rendered.mp4  # 使用 front_120/cam1 实车 AEB 前视内参、near/far、分块渲染和 front.dat LUT 生成的视频
+aeb_real_front_120_rendered.timing.csv  # 实车前视每帧渲染耗时，含 LUT 后处理
 aeb_trajectory_plots.png     # 里程-高度和水平面轨迹图
 ```
 

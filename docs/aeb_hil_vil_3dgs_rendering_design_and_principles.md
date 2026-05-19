@@ -1,240 +1,20 @@
-# AEB HIL/VIL 3DGS 渲染改造与原理说明
+# AEB HIL/VIL 超广角 3DGS 渲染问题记录
 
-本文档面向只熟悉基础 pinhole 成像的读者，解释本次 AEB HIL/VIL 渲染代码为什么这样改、数据怎样流动、3DGS 场景和相机模型到底是什么关系，以及实车 `front_120/cam1` 超广角渲染异常的原因和处理思路。
+本文档专门记录 AEB HIL/VIL 前视超广角相机在 3DGS 渲染中的问题、现象、几何原因和后续解决方案。
 
-相关代码：
-
-```text
-aeb_hil_vil_render/gaussian_scene_renderer.py
-aeb_hil_vil_render/compose_compare_video.py
-aeb_hil_vil_render/extract_scene_inputs.py
-aeb_hil_vil_render/reconstruction_compare.sh
-aeb_hil_vil_render/camera_intrinsics.json
-aeb_hil_vil_render/vtd_lookup_table.py
-gaussian_renderer/__init__.py
-scene/cameras.py
-```
-
-## 1. 最核心的一句话
-
-3DGS 场景本身不是某一种相机模型。
-
-3DGS 场景主要保存的是世界坐标系里的很多 3D Gaussian：
-
-- 位置 `xyz`
-- 尺度 `scale`
-- 旋转 `rotation`
-- 不透明度 `opacity`
-- 颜色/球谐系数 `features`
-- 可选动态物体模型 `dynamic_*.pth`
-
-相机只在“把这些 3D Gaussian 投影成一张 2D 图片”的时候参与。渲染时需要给 renderer 一个虚拟相机：
+当前先记录一个核心问题：
 
 ```text
-相机内参 K
-相机外参 camera_to_world
-图片宽高 width, height
+超大 FOV 为什么会让边缘的 Xc/Zc、Yc/Zc 过大，并导致 3DGS 协方差投影的雅可比近似变差？
 ```
 
-底层 gsplat rasterization 做的事情可以理解为：
+后续新的排查结论和解决方案继续追加到本文档。
 
-```text
-world point -> camera point -> pixel point -> splat/rasterize -> RGB image
-```
+通用渲染流程、脚本入口、轨迹和相机 JSON 说明不在本文档展开，避免和超广角问题混在一起。
 
-所以，“3DGS 场景和相机模型不一致”这个说法不精确。更准确的说法是：
+## 1. 当前问题背景
 
-```text
-3DGS 场景不绑定相机模型；
-但渲染器必须用某个投影模型把场景投到图像上。
-如果投影模型、外参、畸变处理、训练视角覆盖范围不合理，渲染结果会异常。
-```
-
-## 2. 从 pinhole 成像开始
-
-你已经熟悉 pinhole，可以直接对应到当前代码。
-
-一个世界坐标点 `X_world = [x, y, z, 1]^T`，先用外参变成相机坐标：
-
-```text
-X_camera = world_to_camera @ X_world
-world_to_camera = inverse(camera_to_world)
-```
-
-再用内参矩阵 `K` 投到像素坐标：
-
-```text
-[u, v, 1]^T ~ K @ [Xc / Zc, Yc / Zc, 1]^T
-```
-
-常见 OpenCV 风格内参：
-
-```text
-K = [[fx,  0, cx],
-     [ 0, fy, cy],
-     [ 0,  0,  1]]
-```
-
-其中：
-
-- `fx, fy`：焦距的像素单位表达。
-- `cx, cy`：主点坐标，通常以图像左上角为原点。
-- `width, height`：渲染图像分辨率。
-
-本项目中，`scene/cameras.py` 的 `Camera` 类只保存这些关键数据：
-
-```python
-self.K = torch.from_numpy(K).float().cuda()
-self.c2w = torch.from_numpy(c2w).float().cuda()
-self.width = width
-self.height = height
-```
-
-`gaussian_renderer/__init__.py` 里真正传给 gsplat 的是：
-
-```python
-viewmats=torch.linalg.inv(viewpoint.c2w)[None, ...]
-Ks=viewpoint.K[None, :3, :3]
-width=viewpoint.width
-height=viewpoint.height
-```
-
-这就是 pinhole 模型在当前 3DGS 渲染代码里的落点。
-
-## 3. 本次代码结构改造
-
-旧设计里 `render_front_view.py` 名字和职责都绑定“前视”。但新的需求是：
-
-```text
-给什么相机内参和外参，就渲染什么相机视角。
-```
-
-所以代码改成了更通用的核心类：
-
-```text
-aeb_hil_vil_render/gaussian_scene_renderer.py
-```
-
-核心类是 `GaussianSceneRenderer`：
-
-```python
-renderer = GaussianSceneRenderer(scene_path)
-
-image = renderer.render_image(
-    intrinsics=K,
-    camera_to_world=camera_to_world,
-    width=3840,
-    height=2160,
-    timestamp=t,
-)
-```
-
-这个类做了两件事：
-
-1. `__init__` 阶段只加载一次 3DGS 权重。
-2. 每一帧只接收相机参数并返回一张 `uint8 RGB` 图片。
-
-`__init__` 加载内容包括：
-
-- `cfg.yaml`
-- `scene.pth`
-- `dynamic_*.pth`
-- 背景色
-- HUGSIM/gsplat 的 `render` 函数
-
-这样设计的原因是，3DGS 权重很大，不应该每帧重新加载。视频渲染时，应该复用同一个 renderer 实例，然后逐帧传入新的相机位姿。
-
-## 4. 逐帧视频渲染的数据流
-
-`compose_compare_video.py` 负责把轨迹、相机标定和 renderer 串起来。
-
-输入文件有两个关键 JSON：
-
-```text
-aeb_trajectory.json
-aeb_camera.json
-```
-
-`aeb_trajectory.json` 每一帧提供自车世界位姿：
-
-```json
-{
-  "ego_position": [0.0, 0.0, 0.0],
-  "ego_quaternion_wxyz": [1.0, 0.0, 0.0, 0.0],
-  "timestamp": 0.0
-}
-```
-
-代码会把它转成：
-
-```text
-ego_to_world
-```
-
-`aeb_camera.json` 提供相机相对自车的安装外参：
-
-```text
-camera_to_ego
-```
-
-每一帧真正传给渲染器的相机外参是：
-
-```text
-camera_to_world = ego_to_world @ camera_to_ego
-```
-
-这条链路非常重要：
-
-```text
-相机坐标 -> 自车坐标 -> 世界坐标
-camera_to_world = ego_to_world @ camera_to_ego
-```
-
-如果你手上的标定是 `ego_to_camera`，不能直接填到 `camera_to_ego`，必须先求逆：
-
-```text
-camera_to_ego = inverse(ego_to_camera)
-```
-
-外参方向错，是渲染画面严重异常的最常见原因之一。
-
-## 5. `extract_scene_inputs.py` 的注意事项
-
-`extract_scene_inputs.py` 是为了从已经训练好的 HUGSIM 场景里快速提取一套“能跑通”的示例输入。
-
-但是训练场景通常只有采集相机本身的世界位姿，没有真实的：
-
-```text
-自车坐标系 ego
-相机安装外参 camera_to_ego
-```
-
-所以示例提取时采用了一个近似：
-
-```text
-ego_to_world = 训练前视相机 camera_to_world
-camera_to_ego = identity
-```
-
-这只能用于快速查看重建效果。实际 AEB HIL/VIL 场景必须替换为真实自车位姿和真实相机安装外参。
-
-如果继续使用这个示例 `camera_to_ego = identity` 去渲染真实车载相机，很容易出现视角高度、朝向、平移都不对的问题。
-
-## 6. 实车 `front_120/cam1` 渲染链路
-
-实车 AEB 前视相机参数写在：
-
-```text
-aeb_hil_vil_render/camera_intrinsics.json
-```
-
-当前默认使用：
-
-```text
-camera_id = front_120/cam1
-```
-
-该相机的关键参数：
+AEB HIL/VIL 当前关注的实车前视相机是 `front_120/cam1`，关键参数大致为：
 
 ```text
 width  = 3840
@@ -247,317 +27,410 @@ cx     ~= 1917.57
 cy     ~= 1081.59
 ```
 
-这是一个 4K 超广角相机。它不是普通窄 FOV 前视相机。
+这是一个 4K 超广角相机，不是普通窄 FOV 前视相机。
 
-`compose_compare_video.py` 会做这些事：
+异常现象主要表现为：
 
-1. 从 `camera_intrinsics.json` 找到 `front_120/cam1`。
-2. 用它的 `camera_matrix` 替换普通示例相机内参。
-3. 用它的 `width/height` 设置输出分辨率。
-4. 读取 `near/far`。
-5. 如果存在 VTD lookup table，就使用 lookup table 处理超广角映射。
-6. 逐帧调用 `GaussianSceneRenderer` 生成实车相机视频。
-7. 写出每帧耗时 CSV。
+- 图像边缘或上方严重拉伸。
+- 边缘 Gaussian splat 被拉成很大的屏幕空间椭圆。
+- 画面出现涂抹、模糊、拖影。
+- 使用单个 pinhole 相机直接覆盖完整 `133 x 105` 度 FOV 时，边缘问题尤其明显。
 
-输出默认是：
+## 2. 手写推导图
 
-```text
-aeb_real_front_120_rendered.mp4
-aeb_real_front_120_rendered.timing.csv
-```
+下图根据本次讨论中的手写 pinhole 投影推导整理，用于固定这次问题背景。
 
-## 7. 为什么超广角直接渲染会异常
+![超广角 pinhole 投影中归一化坐标与边缘拉伸问题的手写推导重绘](assets/aeb_wide_angle_jacobian_projection_note.svg)
 
-你看到的异常图像表现为边缘和上方严重拉伸、模糊、拖影。这个现象和 3DGS 场景“有没有相机模型”不是一回事。
-
-核心原因是：用单个 pinhole 相机直接覆盖 `133 x 105` 度的超大 FOV，会让图像边缘的投影非常极端。
-
-在 pinhole 模型里：
+核心 pinhole 投影关系为：
 
 ```text
 u = fx * Xc / Zc + cx
 v = fy * Yc / Zc + cy
 ```
 
-当视线接近超广角边缘时，很多点的 `Zc` 变小，`Xc / Zc` 或 `Yc / Zc` 会快速变大。对 3DGS 来说，一个 3D Gaussian 投到 2D 后会变成一个屏幕空间椭圆 splat。超广角边缘会把这些 splat 拉得很大，产生明显的涂抹和模糊。
+其中：
 
-此外还有两个现实问题：
+- `Xc, Yc, Zc` 是 3D 点在相机坐标系下的坐标。
+- `Xc / Zc`、`Yc / Zc` 是归一化像平面坐标。
+- `u, v` 是像素坐标。
 
-- 训练数据里的相机视角可能没有覆盖真实 120 度前视相机的全部视野。
-- VTD 实车相机图像可能不是单纯 pinhole 图，而是经过 lookup table 畸变/校正后的图。
+## 3. 几何解释：为什么边缘归一化坐标过大
 
-所以，异常不是因为“3DGS 场景绑定了某个相机模型”，而是因为：
-
-```text
-用一个普通 pinhole rasterization 直接渲染超广角 4K 输出，投影边缘数值条件很差；
-同时真实相机输出还可能需要畸变查表映射。
-```
-
-## 8. 当前对超广角的处理
-
-当前代码里有两层处理。
-
-第一层是普通分块渲染：
+后续讨论集中看 pinhole 投影里的两个比值：
 
 ```text
-tile_width
-tile_height
-tile_overlap
-max_splat_radius
+x = Xc / Zc
+y = Yc / Zc
 ```
 
-它把大图拆成多个小块，每个小块单独渲染，再用 overlap 权重融合。这样可以降低单次 rasterization 覆盖范围太大的问题。
-
-第二层是 ray projection lookup table 渲染，这是 `front_120/cam1` 更关键的处理。
-
-代码位置：
+它们就是归一化像平面坐标，也可以由像素坐标反算：
 
 ```text
-GaussianSceneRenderer.render_ray_map_request()
+x = (u - cx) / fx
+y = (v - cy) / fy
 ```
 
-基本思想是：
-
-1. VTD lookup table 给出最终图像每个像素对应的源图像采样坐标。
-2. 代码把这些采样坐标反算成相机射线方向。
-3. 把整张超广角图的射线场拆成多个局部 tile。
-4. 每个 tile 构造一个局部 pinhole 相机。
-5. 分别渲染这些局部 pinhole 图。
-6. 再把 tile 渲染结果按 lookup/ray map 采样回最终 4K 图像。
-
-这样做的直觉是：
+图像中心附近，`x` 和 `y` 接近 0。图像边缘处，`x` 和 `y` 的最大量级由 FOV 决定：
 
 ```text
-不要强迫一个 pinhole 相机一次性吃下 133 度 FOV；
-而是把超广角相机拆成多个较小视场的局部 pinhole 相机。
+|x_edge| ~= tan(fov_x / 2)
+|y_edge| ~= tan(fov_y / 2)
 ```
 
-这能减少超广角边缘的 2D splat 过度拉伸。
-
-## 9. lookup table 在这里的意义
-
-`aeb_hil_vil_render/vtd_lookup_table.py` 负责读取 VTD `.dat` 查表文件。
-
-它会生成两个矩阵：
+以 `front_120/cam1` 为例：
 
 ```text
-map_x
-map_y
+fov_x / 2 ~= 66.63 deg
+|x_edge| ~= tan(66.63 deg) ~= 2.31
+
+fov_y / 2 ~= 52.47 deg
+|y_edge| ~= tan(52.47 deg) ~= 1.30
 ```
 
-OpenCV 的 `cv2.remap` 语义是：
+所以超广角边缘的问题根本在于：`Xc / Zc` 和 `Yc / Zc` 的数值已经很大。它们进入 3DGS 协方差投影的雅可比矩阵后，会直接影响屏幕空间 splat 的形状和大小。
+
+## 4. 从 3DGS 协方差投影看 splat 放大
+
+3DGS 中每个 Gaussian 不是一个没有大小的 3D 点，而是一个带 3D 协方差的椭球。渲染时，这个 3D 协方差会被相机投影到屏幕空间，变成 2D 椭圆 splat。
+
+设世界坐标下的 Gaussian 协方差为：
 
 ```text
-output[y, x] = input[map_y[y, x], map_x[y, x]]
+Sigma_3d
 ```
 
-也就是说，lookup table 描述的是“输出图像的每个像素应该从输入图像哪个位置采样”。
-
-普通后处理模式是：
+先把它旋转到相机坐标系：
 
 ```text
-先渲染一张 pinhole 图 -> 再用 lookup table remap 成 VTD 风格图
+Sigma_c = Rcw * Sigma_3d * Rcw^T
 ```
 
-ray projection 模式是：
+再用 pinhole 投影在当前点附近的一阶线性化，把 3D 协方差投影到 2D 屏幕空间：
 
 ```text
-先把 lookup table 对应的每个像素转成射线 -> 分块渲染这些射线 -> 拼成最终图
+Sigma_2d = J * Sigma_c * J^T
 ```
 
-对超广角相机，后者更合理。
+这里 `J` 是 pinhole 投影函数对相机坐标 `Xc, Yc, Zc` 的局部雅可比矩阵。
 
-## 10. 动态物体和时间戳
-
-`CameraRenderRequest` 里有两个容易忽略的字段：
+对下面的投影关系：
 
 ```text
-timestamp
-dynamics
+u = fx * Xc / Zc + cx
+v = fy * Yc / Zc + cy
 ```
 
-`timestamp` 用于当前帧时间。`dynamics` 用于每个动态物体在当前帧的世界变换。
-
-底层 `gaussian_renderer.render()` 会把静态背景 Gaussian 和动态物体 Gaussian 合起来：
+雅可比为：
 
 ```text
-all_gaussians = static_scene + transformed_dynamic_objects
+J = [
+  fx/Zc,      0,  -fx*Xc/Zc^2
+      0,  fy/Zc,  -fy*Yc/Zc^2
+]
 ```
 
-所以如果轨迹 JSON 里有动态物体变换，每帧渲染时也会应用。
-
-## 11. `previous_camera` 是什么
-
-`GaussianSceneRenderer` 里有：
-
-```python
-self.previous_camera
-```
-
-它主要用于时间相关的信息，例如 optical flow 或动态物体上一帧状态。虽然当前 RGB 渲染不一定强依赖它，但视频渲染时保持上一帧相机是合理的。
-
-切换到另一段视频或另一个相机时，需要调用：
-
-```python
-renderer.reset_temporal_state()
-```
-
-当前 `compose_compare_video.py` 在开始渲染实车相机视频前会重置它，避免普通对比视频的上一帧状态影响实车视频。
-
-## 12. appearance affine 和 tile 渲染
-
-HUGSIM 的 `GaussianModel` 可能启用 `affine` 外观模型。底层代码会根据相机位置和朝向预测一个颜色仿射修正：
-
-```python
-cam_xyz = affine_c2w[:3, 3]
-cam_dir = affine_c2w[:3, 2]
-```
-
-普通渲染时，外观模型使用当前相机的 `c2w`。
-
-ray tile 渲染时，每个 tile 都是人为构造出来的局部小相机。如果直接把局部 tile 相机拿去驱动 appearance affine，可能导致同一帧不同 tile 颜色不一致。
-
-所以当前代码给 tile render 传入：
+把 `x = Xc / Zc`、`y = Yc / Zc` 代入，可以写成：
 
 ```text
-appearance_camera_to_world = 原始整帧相机 camera_to_world
+J = [
+  fx/Zc,      0,  -fx*x/Zc
+      0,  fy/Zc,  -fy*y/Zc
+]
 ```
 
-这样 tile 之间共享同一个外观条件，减少拼接时的颜色不连续。
+如果先把整体尺度项看成同一层面的距离缩放，那么真正体现“大广角边缘”的就是第三列里的 `x` 和 `y`。它们越大，相机坐标中的深度方向扰动越容易被映射成屏幕上的横向或纵向位移。
 
-## 13. 每帧耗时统计
-
-`GaussianSceneRenderer` 支持精确统计实车 4K 渲染每一帧耗时：
-
-```python
-renderer.enable_timing(clear=True)
-...
-renderer.save_timing_csv(path)
-renderer.print_timing_summary()
-```
-
-CSV 字段包括：
+更直观地看一个简化例子。假设：
 
 ```text
-frame_index
-image_name
-width
-height
-timestamp
-camera_ms
-render_ms
-postprocess_ms
-total_ms
+fx = fy = f
+Sigma_c = sigma^2 * I
 ```
 
-含义：
-
-- `camera_ms`：构造 HUGSIM `Camera` 对象的 CPU/GPU 数据准备耗时。
-- `render_ms`：CUDA rasterization 渲染耗时，使用 CUDA event 统计。
-- `postprocess_ms`：tensor 转 `uint8`、lookup table remap、tile stitch 等后处理耗时。
-- `total_ms`：整帧端到端耗时。
-
-如果问“4K 实车相机一张图片需要渲染多久”，应以生成的：
+则有：
 
 ```text
-aeb_real_front_120_rendered.timing.csv
+J = (f / Zc) * [
+  1, 0, -x
+  0, 1, -y
+]
 ```
 
-为准。不同场景 Gaussian 数量、动态物体数量、GPU 型号、tile 数量、lookup table 是否命中缓存，都会影响最终耗时。
+2D 协方差近似为：
 
-## 14. 排查渲染异常的顺序
+```text
+Sigma_2d = (f * sigma / Zc)^2 * [
+  1 + x^2,  x*y
+      x*y,  1 + y^2
+]
+```
 
-如果画面异常，建议按这个顺序排查。
+这说明即使整体距离缩放项相同，只要边缘的 `x`、`y` 变大，2D splat 也会沿径向方向被拉长。该矩阵的两个主方向量级可以理解为：
 
-1. 先用训练相机复现对比视频。
+```text
+切向标准差量级  ~ f * sigma / Zc
+径向标准差量级  ~ (f * sigma / Zc) * sqrt(1 + x^2 + y^2)
+```
 
-   如果训练相机视角都渲染不对，优先查 3DGS 场景、权重加载、坐标读取。
+因此径向相对切向的拉伸比例约为：
 
-2. 检查外参方向。
+```text
+sqrt(1 + x^2 + y^2)
+```
 
-   确认传入的是 `camera_to_ego`，不是 `ego_to_camera`。最终应满足：
+代入 `front_120/cam1` 的边缘量级：
 
-   ```text
-   camera_to_world = ego_to_world @ camera_to_ego
-   ```
+```text
+水平边缘：x ~= 2.31, y ~= 0
+径向/切向标准差比例 ~= sqrt(1 + 2.31^2) ~= 2.52
 
-3. 检查坐标轴定义。
+垂直边缘：x ~= 0, y ~= 1.30
+径向/切向标准差比例 ~= sqrt(1 + 1.30^2) ~= 1.64
 
-   自车坐标系和 HUGSIM 世界坐标系必须一致。如果实车数据是右前上、前左上、东北天等，需要先转换到场景使用的坐标约定。
+角点附近：x ~= 2.31, y ~= 1.30
+径向/切向标准差比例 ~= sqrt(1 + 2.31^2 + 1.30^2) ~= 2.83
+```
 
-4. 检查旋转顺序和单位。
+这解释了一个关键现象：
 
-   当前支持 `ego_quaternion_wxyz`、`ego_quaternion_xyzw`、`ego_rpy`。RPY 默认是弧度，组合顺序为：
+```text
+同一个实际尺度的 3D Gaussian，
+在图像中心可能只是一个小 splat，
+到了超广角边缘会被投影成一个又大又长的 2D 椭圆。
+```
 
-   ```text
-   R = Rz(yaw) @ Ry(pitch) @ Rx(roll)
-   ```
+因此，超广角直接渲染的问题不只是像素坐标 `u, v` 变大，而是 3DGS 核心 rasterization 依赖的 `Sigma_2d` 本身也会在边缘变得更大、更扁、更偏径向。
 
-5. 检查内参分辨率是否匹配。
+一言以蔽之：
 
-   `K` 必须对应当前 `width/height`。如果把 1920x1080 的 `K` 用到 3840x2160，`fx/fy/cx/cy` 通常要按比例缩放。
+```text
+大广角边缘渲染问题的根本原因，
+是用单个局部雅可比矩阵近似 pinhole 非线性投影时，
+在过大的 Xc/Zc、Yc/Zc 位置上近似质量变差。
+```
 
-6. 检查主点原点。
+3DGS 协方差投影使用的是当前 Gaussian 中心点处的一阶线性化。这个近似在图像中心、小 FOV、小 splat 时比较合理；但在超广角边缘，`x`、`y` 很大，雅可比矩阵中的深度耦合项也大，且投影函数在 Gaussian 覆盖范围内变化更剧烈。于是一个 3D Gaussian 更容易被近似成过大、过扁或拖长的 2D 椭圆，最终表现为边缘拉伸、模糊、拖影和涂抹。
 
-   当前使用 OpenCV 风格，像素原点在左上角。若外部系统使用左下角原点，需要转换 `cy`。
+## 5. 结论记录
 
-7. 检查 lookup table 文件是否存在且尺寸匹配。
+当前结论如下：
 
-   `front_120/cam1` 的 `.dat` lookup table 必须能解析成 `3840x2160` 的 `map_x/map_y`。
+1. 超广角边缘问题的核心量是归一化像平面坐标 `x = Xc / Zc`、`y = Yc / Zc`。
+2. FOV 越大，图像边缘允许的 `x`、`y` 绝对值越大。
+3. `front_120/cam1` 的水平边缘 `|x|` 约为 `2.31`，垂直边缘 `|y|` 约为 `1.30`。
+4. 3DGS 的 2D splat 来自 `Sigma_2d = J * Sigma_c * J^T`。
+5. 雅可比矩阵里和大广角直接相关的是 `-fx*x/Zc`、`-fy*y/Zc` 这两个深度耦合项。
+6. `x`、`y` 越大，2D 协方差越容易被拉成径向长椭圆。
+7. 大广角边缘渲染问题的根本原因，是用单个局部雅可比矩阵近似非线性 pinhole 投影时，在大 `x`、大 `y` 位置近似质量变差。
 
-8. 检查训练视角覆盖。
+一句话概括：
 
-   3DGS 只能重建训练数据看见过的内容。真实 120 度相机看到训练相机没覆盖的区域时，画面边缘或远处可能缺失、模糊或漂浮。
+```text
+超广角异常的关键不是 3DGS 场景绑定了某个相机模型，
+而是 3DGS 协方差投影中的局部雅可比近似在超大 FOV 边缘变差。
+```
 
-9. 检查 near/far。
+## 6. pandaset/003 实测记录
 
-   当前实车相机读取 VTD 的 `near=1.0` 和 `far=2500.0`。如果近处物体被裁掉或远处异常，需要结合场景尺度检查裁剪面。
+本次用 `outputs/pandaset/003` 场景直接渲染 `front_120/cam1` 真实超广角前视视频。当前代码路径已经回退为单个 pinhole 相机直接渲染，不做超广角分块、不做 ray map / lookup table，也不做 splat 半径裁剪。
 
-## 15. 一键入口
-
-当前一键脚本是：
+运行命令：
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 bash aeb_hil_vil_render/reconstruction_compare.sh \
-  /home/sil/workspace/HUGSIM/outputs/nusc/scene-0038 \
-  /home/sil/workspace/HUGSIM/data-or-original-scene-path
+  /workspace/HUGSIM/outputs/pandaset/003 \
+  /workspace/HUGSIM/outputs/pandaset/003
 ```
 
-脚本会先提取轨迹和相机 JSON，再调用 `compose_compare_video.py` 生成：
+输出文件：
 
 ```text
-aeb_front_compare.mp4
-aeb_real_front_120_rendered.mp4
-aeb_real_front_120_rendered.timing.csv
+outputs/aeb_hil_vil_render/pandaset/003/aeb_real_front_120_rendered.mp4
+outputs/aeb_hil_vil_render/pandaset/003/aeb_real_front_120_rendered.timing.csv
 ```
 
-其中：
+### 6.1 渲染画面示例
 
-- `aeb_front_compare.mp4`：原始采集视频和训练相机渲染结果左右对比。
-- `aeb_real_front_120_rendered.mp4`：用 `front_120/cam1` 实车 AEB 前视相机内参渲染的视频。
-- `aeb_real_front_120_rendered.timing.csv`：实车相机每帧耗时。
+第 0 帧：
 
-## 16. 推荐理解方式
+![pandaset/003 front_120 pinhole frame 000](assets/pandaset003_real_front120_pinhole_frame000.png)
 
-可以把整个系统拆成三层：
+第 40 帧：
+
+![pandaset/003 front_120 pinhole frame 040](assets/pandaset003_real_front120_pinhole_frame040.png)
+
+能直接看到的问题：
+
+- 画面整体偏蓝灰，低频背景被大面积涂抹。
+- 左右边缘和上方出现明显径向拖影，车辆、道路边缘、建筑立面和树枝被拉成长条。
+- 中心远处仍能保留部分结构，但越靠近大 FOV 边缘，splat 被拉成径向长椭圆的现象越明显。
+- 这和前文分析一致：`front_120/cam1` 的边缘 `Xc/Zc`、`Yc/Zc` 很大，单个局部雅可比矩阵近似 pinhole 非线性投影时，在边缘位置近似质量变差。
+
+### 6.2 渲染耗时统计
+
+本次渲染 80 帧，分辨率为 `3840 x 2160`。计时来自：
 
 ```text
-第一层：3DGS 场景
-世界坐标里的 Gaussian 集合，本身不关心最终用哪个相机看。
-
-第二层：相机几何
-K、camera_to_world、width、height 决定从哪里看、怎么看、图像多大。
-
-第三层：工程适配
-轨迹逐帧循环、实车相机标定、VTD lookup table、超广角分块、视频编码、耗时统计。
+outputs/aeb_hil_vil_render/pandaset/003/aeb_real_front_120_rendered.timing.csv
 ```
 
-本次改造的目标就是把这三层拆清楚：
+汇总结果：
 
-```text
-gaussian_scene_renderer.py 负责第一层和第二层的渲染接口。
-compose_compare_video.py 负责第三层的视频流程。
-reconstruction_compare.sh 负责一键跑通当前业务入口。
-```
+| 指标 | 平均 ms | 最小 ms | 最大 ms | 中位数 ms |
+|---|---:|---:|---:|---:|
+| camera_ms | 14.419 | 9.966 | 20.924 | 14.261 |
+| render_ms | 66.978 | 57.441 | 72.632 | 67.561 |
+| postprocess_ms | 88.682 | 80.219 | 101.674 | 85.433 |
+| total_ms | 170.351 | 158.373 | 187.875 | 168.978 |
 
-这样后续即使相机不再是前视、输出不再是对比视频、轨迹来源换成 HIL/VIL 实车记录，也不需要重写底层 3DGS 渲染类，只需要换输入的 `K`、`camera_to_world` 和视频组织逻辑。
+示例帧：
+
+| frame | timestamp_s | camera_ms | render_ms | postprocess_ms | total_ms |
+|---:|---:|---:|---:|---:|---:|
+| 0 | 0.000 | 14.258 | 63.128 | 85.111 | 162.776 |
+| 40 | 4.000 | 14.049 | 66.290 | 82.970 | 163.500 |
+
+<details>
+<summary>逐帧 render_ms / total_ms</summary>
+
+| frame | timestamp_s | render_ms | total_ms |
+|---:|---:|---:|---:|
+| 0 | 0.000 | 63.128 | 162.776 |
+| 1 | 0.100 | 65.165 | 158.373 |
+| 2 | 0.200 | 64.058 | 161.309 |
+| 3 | 0.300 | 67.729 | 164.645 |
+| 4 | 0.400 | 70.329 | 168.582 |
+| 5 | 0.500 | 70.944 | 171.697 |
+| 6 | 0.600 | 72.082 | 169.049 |
+| 7 | 0.700 | 72.085 | 168.520 |
+| 8 | 0.800 | 68.154 | 163.825 |
+| 9 | 0.900 | 71.263 | 167.013 |
+| 10 | 1.000 | 72.240 | 167.019 |
+| 11 | 1.100 | 72.632 | 169.631 |
+| 12 | 1.200 | 71.584 | 168.851 |
+| 13 | 1.300 | 70.981 | 164.296 |
+| 14 | 1.400 | 72.189 | 168.855 |
+| 15 | 1.500 | 71.599 | 169.106 |
+| 16 | 1.600 | 70.798 | 166.015 |
+| 17 | 1.700 | 71.184 | 166.683 |
+| 18 | 1.800 | 68.997 | 164.160 |
+| 19 | 1.900 | 66.210 | 161.306 |
+| 20 | 2.000 | 70.329 | 169.518 |
+| 21 | 2.100 | 68.663 | 163.536 |
+| 22 | 2.200 | 64.331 | 162.575 |
+| 23 | 2.300 | 67.734 | 165.859 |
+| 24 | 2.400 | 66.382 | 166.273 |
+| 25 | 2.500 | 68.696 | 165.347 |
+| 26 | 2.600 | 68.986 | 171.926 |
+| 27 | 2.700 | 67.746 | 167.521 |
+| 28 | 2.800 | 65.876 | 161.256 |
+| 29 | 2.900 | 70.078 | 168.731 |
+| 30 | 3.000 | 72.036 | 174.458 |
+| 31 | 3.100 | 69.231 | 167.567 |
+| 32 | 3.200 | 66.977 | 162.275 |
+| 33 | 3.300 | 67.388 | 162.552 |
+| 34 | 3.400 | 69.612 | 168.765 |
+| 35 | 3.500 | 70.090 | 165.723 |
+| 36 | 3.600 | 68.336 | 167.509 |
+| 37 | 3.700 | 67.738 | 164.128 |
+| 38 | 3.800 | 64.993 | 160.684 |
+| 39 | 3.900 | 68.285 | 164.822 |
+| 40 | 4.000 | 66.290 | 163.500 |
+| 41 | 4.100 | 64.481 | 158.460 |
+| 42 | 4.200 | 63.931 | 176.803 |
+| 43 | 4.300 | 62.811 | 178.005 |
+| 44 | 4.400 | 62.386 | 179.067 |
+| 45 | 4.500 | 64.877 | 161.853 |
+| 46 | 4.600 | 63.384 | 162.803 |
+| 47 | 4.700 | 62.022 | 163.535 |
+| 48 | 4.800 | 61.769 | 168.360 |
+| 49 | 4.900 | 62.050 | 168.908 |
+| 50 | 5.000 | 66.132 | 175.877 |
+| 51 | 5.100 | 67.974 | 182.517 |
+| 52 | 5.200 | 68.137 | 180.294 |
+| 53 | 5.300 | 69.350 | 174.689 |
+| 54 | 5.400 | 65.818 | 176.797 |
+| 55 | 5.500 | 67.340 | 171.296 |
+| 56 | 5.600 | 68.063 | 173.851 |
+| 57 | 5.700 | 65.902 | 174.606 |
+| 58 | 5.800 | 68.880 | 179.765 |
+| 59 | 5.900 | 69.085 | 176.688 |
+| 60 | 6.000 | 70.383 | 185.256 |
+| 61 | 6.100 | 68.351 | 187.875 |
+| 62 | 6.201 | 67.121 | 178.223 |
+| 63 | 6.301 | 68.421 | 178.536 |
+| 64 | 6.401 | 68.264 | 180.327 |
+| 65 | 6.501 | 65.060 | 173.693 |
+| 66 | 6.601 | 67.154 | 177.319 |
+| 67 | 6.701 | 66.517 | 175.185 |
+| 68 | 6.801 | 66.213 | 174.537 |
+| 69 | 6.901 | 67.394 | 180.684 |
+| 70 | 7.001 | 66.491 | 180.639 |
+| 71 | 7.101 | 65.755 | 181.698 |
+| 72 | 7.201 | 65.233 | 177.422 |
+| 73 | 7.301 | 62.927 | 172.737 |
+| 74 | 7.401 | 61.181 | 173.871 |
+| 75 | 7.500 | 59.810 | 174.297 |
+| 76 | 7.600 | 57.441 | 170.664 |
+| 77 | 7.700 | 58.886 | 171.892 |
+| 78 | 7.800 | 57.916 | 172.245 |
+| 79 | 7.900 | 60.191 | 170.605 |
+
+</details>
+
+## 7. 后续解决方案记录区
+
+当前 `aeb_hil_vil_render/` 已回退为直接 pinhole 渲染：不做超广角分块、不做 ray map / lookup table 渲染，也不做 splat 半径裁剪。下面只保留后续可能重新研究的方案占位，等实验和代码验证后逐步补充。
+
+### 7.1 分块局部 pinhole 渲染
+
+待补充。
+
+需要记录的问题：
+
+- tile 如何划分。
+- tile overlap 如何融合。
+- 局部相机的 FOV 如何确定。
+- 是否能稳定减少边缘 splat 过度拉伸。
+
+### 7.2 ray map / lookup table 渲染
+
+待补充。
+
+需要记录的问题：
+
+- VTD lookup table 的 `map_x/map_y` 语义。
+- 如何从目标像素反算相机射线。
+- 如何把整张超广角射线场拆成多个局部 pinhole 相机。
+- 如何采样回最终 4K 图像。
+
+### 7.3 splat 半径限制与画质权衡
+
+待补充。
+
+需要记录的问题：
+
+- `max_splat_radius` 对边缘拖影的影响。
+- 半径限制是否会引入空洞、断裂或闪烁。
+- 和 tile 渲染、lookup table 渲染的组合方式。
+
+### 7.4 训练视角覆盖不足
+
+待补充。
+
+需要记录的问题：
+
+- 训练数据是否覆盖真实 `front_120/cam1` 的完整视场。
+- 超出训练视角覆盖区域的边缘内容如何表现。
+- 这是重建缺失问题，还是投影模型问题。
+
+### 7.5 实车相机畸变模型
+
+待补充。
+
+需要记录的问题：
+
+- 实车输出是否已经去畸变。
+- VTD 图像是否需要 lookup table 才能对齐真实相机输出。
+- pinhole、fisheye、equirectangular、lookup table 之间的关系。

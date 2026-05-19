@@ -16,6 +16,9 @@ pip = ">=26.1.1,<27"
 [pypi-options]
 no-build-isolation = ["gsplat", "pytorch3d", "tinycudann", "simple-knn", "xformers"]
 
+[pypi-options.dependency-overrides]
+xformers = "*"
+
 [pypi-dependencies]
 torch = { version = "==2.4.1", index = "https://download.pytorch.org/whl/cu118" }
 torchvision = { version = "==0.19.1", index = "https://download.pytorch.org/whl/cu118"}
