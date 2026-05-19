@@ -1,8 +1,10 @@
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from omegaconf import OmegaConf
 
 
@@ -10,6 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(REPO_ROOT))
 
 DEFAULT_TILE_GUARD_PIXELS = 64
+DEFAULT_TILE_RENDER_BATCH_SIZE = 4
 
 
 def as_camera_intrinsics(value, name):
@@ -133,23 +136,6 @@ def make_tile_intrinsics(k_real_inv, tile_to_real_rotation, x0, y0, x1, y1, tile
     return intrinsics
 
 
-def bilinear_sample_rgb(image, x, y):
-    height, width = image.shape[:2]
-    x = np.clip(x, 0.0, width - 1.0)
-    y = np.clip(y, 0.0, height - 1.0)
-
-    x0 = np.floor(x).astype(np.int64)
-    y0 = np.floor(y).astype(np.int64)
-    x1 = np.minimum(x0 + 1, width - 1)
-    y1 = np.minimum(y0 + 1, height - 1)
-
-    wx = (x - x0)[..., None]
-    wy = (y - y0)[..., None]
-    top = image[y0, x0].astype(np.float32) * (1.0 - wx) + image[y0, x1].astype(np.float32) * wx
-    bottom = image[y1, x0].astype(np.float32) * (1.0 - wx) + image[y1, x1].astype(np.float32) * wx
-    return top * (1.0 - wy) + bottom * wy
-
-
 def smoothstep(value):
     value = np.clip(value, 0.0, 1.0)
     return value * value * (3.0 - 2.0 * value)
@@ -174,7 +160,7 @@ def tile_feather_weights(xs, ys, core_x0, core_y0, core_x1, core_y1, guard_x0, g
 
 class GaussianSceneRenderer:
     def __init__(self, scene_path, near_plane=0.01, far_plane=500.0):
-        from gaussian_renderer import GaussianModel, render
+        from gaussian_renderer import GaussianModel, call_rasterization, cat_bgfg, concatenate_all, render
         from scene.obj_model import ObjModel
 
         if not torch.cuda.is_available():
@@ -203,6 +189,10 @@ class GaussianSceneRenderer:
         bg_color = [1, 1, 1] if cfg.model.white_background else [0, 0, 0]
         self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
         self._render = render
+        self._call_rasterization = call_rasterization
+        self._cat_bgfg = cat_bgfg
+        self._concatenate_all = concatenate_all
+        self._tile_composite_cache = {}
         self.previous_camera = None
 
     def reset_temporal_state(self):
@@ -273,7 +263,85 @@ class GaussianSceneRenderer:
             )
         return render_pkg["render"]
 
-    def _render_camera_tiled(
+    def _scene_tensors_for_viewpoint(self, viewpoint):
+        import roma
+
+        all_fg = []
+        for track_id, b2w in viewpoint.dynamics.items():
+            dynamic_model = self.dynamic_gaussians[track_id]
+            w_dxyz = (b2w[:3, :3] @ dynamic_model.get_xyz.T).T + b2w[:3, 3]
+
+            drot = roma.quat_wxyz_to_xyzw(dynamic_model.get_rotation)
+            drot = roma.unitquat_to_rotmat(drot)
+            w_drot = roma.quat_xyzw_to_wxyz(roma.rotmat_to_unitquat(b2w[:3, :3] @ drot))
+            all_fg.append(
+                [
+                    w_dxyz,
+                    dynamic_model.get_opacity,
+                    dynamic_model.get_scaling,
+                    w_drot,
+                    dynamic_model.get_features,
+                    dynamic_model.get_3D_features,
+                ]
+            )
+
+        all_fg = self._concatenate_all(all_fg)
+        return self._cat_bgfg(self.gaussians, all_fg)
+
+    def _apply_affine_batch(self, rendered_images, c2ws):
+        if not self.gaussians.affine:
+            return rendered_images
+
+        refined_images = []
+        for rendered_image, c2w in zip(rendered_images, c2ws):
+            cam_xyz = c2w[:3, 3].cuda()
+            cam_dir = c2w[:3, 2].cuda()
+            o_enc = self.gaussians.pos_enc(cam_xyz[None, :] / 60)
+            d_enc = self.gaussians.dir_enc(cam_dir[None, :])
+            appearance = self.gaussians.appearance_model(torch.cat([o_enc, d_enc], dim=1)) * 1e-1
+            affine_weight, affine_bias = appearance[:, :9].view(3, 3), appearance[:, -3:]
+            affine_weight = affine_weight + torch.eye(3, device=appearance.device)
+            colors = rendered_image.view(3, -1).permute(1, 0)
+            refined_image = (colors @ affine_weight + affine_bias).clip(0, 1).permute(1, 0).view(*rendered_image.shape)
+            refined_images.append(refined_image)
+        return torch.stack(refined_images, dim=0)
+
+    def _render_viewpoint_batch(self, viewpoints, near_plane, far_plane):
+        width = viewpoints[0].width
+        height = viewpoints[0].height
+        if any(viewpoint.width != width or viewpoint.height != height for viewpoint in viewpoints):
+            raise ValueError("batched tile viewpoints must have identical image dimensions")
+
+        with torch.no_grad():
+            xyz, opacities, scales, rotations, shs, _ = self._scene_tensors_for_viewpoint(viewpoints[0])
+            viewmats = torch.stack([torch.linalg.inv(viewpoint.c2w) for viewpoint in viewpoints], dim=0)
+            intrinsics = torch.stack([viewpoint.K[:3, :3] for viewpoint in viewpoints], dim=0)
+            camera_count = len(viewpoints)
+
+            renders, _, _ = self._call_rasterization(
+                means=xyz,
+                quats=rotations,
+                scales=scales,
+                opacities=opacities[:, 0],
+                colors=shs,
+                viewmats=viewmats,
+                Ks=intrinsics,
+                width=width,
+                height=height,
+                render_mode="RGB",
+                sh_degree=self.gaussians.active_sh_degree,
+                near_plane=near_plane,
+                far_plane=far_plane,
+                max_radius_clip=0.0,
+                packed=False,
+                backgrounds=self.background[None, :].expand(camera_count, -1),
+            )
+
+            rendered_images = renders[..., :3].permute(0, 3, 1, 2)
+            rendered_images = self._apply_affine_batch(rendered_images, [viewpoint.c2w for viewpoint in viewpoints])
+        return list(rendered_images)
+
+    def _build_tile_render_tasks(
         self,
         intrinsics,
         world_to_camera,
@@ -282,36 +350,42 @@ class GaussianSceneRenderer:
         timestamp,
         dynamics,
         image_name,
-        near_plane,
-        far_plane,
         tile_rows,
         tile_cols,
     ):
-        intrinsics = as_camera_intrinsics(intrinsics, "camera intrinsics")
-        world_to_camera = as_transform(world_to_camera, "world_to_camera")
-        width = as_positive_int(width, "width")
-        height = as_positive_int(height, "height")
-        if tile_rows > height:
-            raise ValueError("tile_rows must not exceed image height")
-        if tile_cols > width:
-            raise ValueError("tile_cols must not exceed image width")
+        static_tasks = self._tile_static_tasks(intrinsics, width, height, tile_rows, tile_cols)
+        camera_to_world = np.linalg.inv(world_to_camera).astype(np.float32)
+
+        tasks = []
+        for static_task in static_tasks:
+            tile_to_real_rotation = static_task["tile_to_real_rotation"]
+            tile_camera_to_world = camera_to_world @ make_transform(tile_to_real_rotation)
+            tile_world_to_camera = np.linalg.inv(tile_camera_to_world).astype(np.float32)
+            tile_viewpoint = self._make_camera(
+                intrinsics=static_task["tile_intrinsics"],
+                world_to_camera=tile_world_to_camera,
+                width=static_task["tile_width"],
+                height=static_task["tile_height"],
+                timestamp=timestamp,
+                dynamics=dynamics,
+                image_name=f"{image_name}_tile_{static_task['row_index']}_{static_task['col_index']}",
+            )
+            tasks.append({**static_task, "viewpoint": tile_viewpoint})
+        return tasks
+
+    def _tile_cache_key(self, intrinsics, width, height, tile_rows, tile_cols):
+        k_real = np.ascontiguousarray(intrinsics[:3, :3], dtype=np.float32)
+        return (width, height, tile_rows, tile_cols, DEFAULT_TILE_GUARD_PIXELS, k_real.tobytes())
+
+    def _tile_static_tasks(self, intrinsics, width, height, tile_rows, tile_cols):
+        key = self._tile_cache_key(intrinsics, width, height, tile_rows, tile_cols)
+        cached_tasks = self._tile_composite_cache.get(key)
+        if cached_tasks is not None:
+            return cached_tasks
 
         k_real = intrinsics[:3, :3]
         k_real_inv = np.linalg.inv(k_real).astype(np.float32)
-        camera_to_world = np.linalg.inv(world_to_camera).astype(np.float32)
-        previous_camera = self.previous_camera
-        reference_viewpoint = self._make_camera(
-            intrinsics=intrinsics,
-            world_to_camera=world_to_camera,
-            width=width,
-            height=height,
-            timestamp=timestamp,
-            dynamics=dynamics,
-            image_name=image_name,
-        )
-        output_accum = np.zeros((height, width, 3), dtype=np.float32)
-        weight_accum = np.zeros((height, width, 1), dtype=np.float32)
-
+        tasks = []
         for row_index, (tile_y0, tile_y1) in enumerate(tile_ranges(height, tile_rows)):
             for col_index, (tile_x0, tile_x1) in enumerate(tile_ranges(width, tile_cols)):
                 guard_x0 = max(0, tile_x0 - DEFAULT_TILE_GUARD_PIXELS)
@@ -335,41 +409,10 @@ class GaussianSceneRenderer:
                     tile_width,
                     tile_height,
                 )
-                tile_camera_to_world = camera_to_world @ make_transform(tile_to_real_rotation)
-                tile_world_to_camera = np.linalg.inv(tile_camera_to_world).astype(np.float32)
-                tile_viewpoint = self._make_camera(
-                    intrinsics=tile_intrinsics,
-                    world_to_camera=tile_world_to_camera,
-                    width=tile_width,
-                    height=tile_height,
-                    timestamp=timestamp,
-                    dynamics=dynamics,
-                    image_name=f"{image_name}_tile_{row_index}_{col_index}",
-                )
-                render_tensor = self._render_viewpoint(
-                    tile_viewpoint,
-                    previous_camera or tile_viewpoint,
-                    near_plane,
-                    far_plane,
-                )
-                tile_image = render_to_uint8(render_tensor)
-
-                xs, ys = np.meshgrid(
-                    np.arange(guard_x0, guard_x1, dtype=np.float32),
-                    np.arange(guard_y0, guard_y1, dtype=np.float32),
-                )
-                pixel_homogeneous = np.stack([xs, ys, np.ones_like(xs)], axis=0).reshape(3, -1)
-                real_to_tile_homography = tile_intrinsics[:3, :3] @ tile_to_real_rotation.T @ k_real_inv
-                tile_pixels = real_to_tile_homography @ pixel_homogeneous
-                tile_pixels[:2] /= tile_pixels[2:3]
-                sampled = bilinear_sample_rgb(
-                    tile_image,
-                    tile_pixels[0].reshape(ys.shape),
-                    tile_pixels[1].reshape(ys.shape),
-                )
-                weights = tile_feather_weights(
-                    xs,
-                    ys,
+                sample_grid, feather_weights = self._tile_composite_tensors(
+                    k_real_inv,
+                    tile_intrinsics,
+                    tile_to_real_rotation,
                     tile_x0,
                     tile_y0,
                     tile_x1,
@@ -378,13 +421,158 @@ class GaussianSceneRenderer:
                     guard_y0,
                     guard_x1,
                     guard_y1,
-                )[..., None]
-                output_accum[guard_y0:guard_y1, guard_x0:guard_x1] += sampled * weights
-                weight_accum[guard_y0:guard_y1, guard_x0:guard_x1] += weights
+                    tile_width,
+                    tile_height,
+                )
+                tasks.append(
+                    {
+                        "row_index": row_index,
+                        "col_index": col_index,
+                        "tile_width": tile_width,
+                        "tile_height": tile_height,
+                        "tile_to_real_rotation": tile_to_real_rotation,
+                        "tile_intrinsics": tile_intrinsics,
+                        "core": (tile_x0, tile_y0, tile_x1, tile_y1),
+                        "guard": (guard_x0, guard_y0, guard_x1, guard_y1),
+                        "sample_grid": sample_grid,
+                        "feather_weights": feather_weights,
+                    }
+                )
+
+        self._tile_composite_cache[key] = tasks
+        return tasks
+
+    def _tile_composite_tensors(
+        self,
+        k_real_inv,
+        tile_intrinsics,
+        tile_to_real_rotation,
+        tile_x0,
+        tile_y0,
+        tile_x1,
+        tile_y1,
+        guard_x0,
+        guard_y0,
+        guard_x1,
+        guard_y1,
+        tile_width,
+        tile_height,
+    ):
+        xs, ys = np.meshgrid(
+            np.arange(guard_x0, guard_x1, dtype=np.float32),
+            np.arange(guard_y0, guard_y1, dtype=np.float32),
+        )
+        pixel_homogeneous = np.stack([xs, ys, np.ones_like(xs)], axis=0).reshape(3, -1)
+        real_to_tile_homography = tile_intrinsics[:3, :3] @ tile_to_real_rotation.T @ k_real_inv
+        tile_pixels = real_to_tile_homography @ pixel_homogeneous
+        tile_pixels[:2] /= tile_pixels[2:3]
+
+        if tile_width > 1:
+            grid_x = tile_pixels[0].reshape(ys.shape) * (2.0 / (tile_width - 1)) - 1.0
+        else:
+            grid_x = np.zeros_like(ys, dtype=np.float32)
+        if tile_height > 1:
+            grid_y = tile_pixels[1].reshape(ys.shape) * (2.0 / (tile_height - 1)) - 1.0
+        else:
+            grid_y = np.zeros_like(ys, dtype=np.float32)
+        sample_grid = np.stack([grid_x, grid_y], axis=-1).astype(np.float32)
+        feather_weights = tile_feather_weights(
+            xs,
+            ys,
+            tile_x0,
+            tile_y0,
+            tile_x1,
+            tile_y1,
+            guard_x0,
+            guard_y0,
+            guard_x1,
+            guard_y1,
+        ).astype(np.float32)
+        return (
+            torch.from_numpy(sample_grid).to(device="cuda")[None, ...],
+            torch.from_numpy(feather_weights).to(device="cuda")[None, None, ...],
+        )
+
+    def _render_camera_tiled(
+        self,
+        intrinsics,
+        world_to_camera,
+        width,
+        height,
+        timestamp,
+        dynamics,
+        image_name,
+        near_plane,
+        far_plane,
+        tile_rows,
+        tile_cols,
+    ):
+        intrinsics = as_camera_intrinsics(intrinsics, "camera intrinsics")
+        world_to_camera = as_transform(world_to_camera, "world_to_camera")
+        width = as_positive_int(width, "width")
+        height = as_positive_int(height, "height")
+        if tile_rows > height:
+            raise ValueError("tile_rows must not exceed image height")
+        if tile_cols > width:
+            raise ValueError("tile_cols must not exceed image width")
+
+        reference_viewpoint = self._make_camera(
+            intrinsics=intrinsics,
+            world_to_camera=world_to_camera,
+            width=width,
+            height=height,
+            timestamp=timestamp,
+            dynamics=dynamics,
+            image_name=image_name,
+        )
+        output_accum = torch.zeros((1, 3, height, width), dtype=torch.float32, device="cuda")
+        weight_accum = torch.zeros((1, 1, height, width), dtype=torch.float32, device="cuda")
+        tasks = self._build_tile_render_tasks(
+            intrinsics,
+            world_to_camera,
+            width,
+            height,
+            timestamp,
+            dynamics,
+            image_name,
+            tile_rows,
+            tile_cols,
+        )
+
+        tasks_by_size = defaultdict(list)
+        for task in tasks:
+            viewpoint = task["viewpoint"]
+            tasks_by_size[(viewpoint.width, viewpoint.height)].append(task)
+
+        for batch_tasks in tasks_by_size.values():
+            for batch_start in range(0, len(batch_tasks), DEFAULT_TILE_RENDER_BATCH_SIZE):
+                batch = batch_tasks[batch_start : batch_start + DEFAULT_TILE_RENDER_BATCH_SIZE]
+                render_tensors = self._render_viewpoint_batch(
+                    [task["viewpoint"] for task in batch],
+                    near_plane,
+                    far_plane,
+                )
+                render_batch = torch.stack(render_tensors, dim=0)
+                sample_grids = torch.cat([task["sample_grid"] for task in batch], dim=0)
+                sampled_batch = F.grid_sample(
+                    render_batch,
+                    sample_grids,
+                    mode="bilinear",
+                    padding_mode="border",
+                    align_corners=True,
+                )
+
+                for task_index, task in enumerate(batch):
+                    guard_x0, guard_y0, guard_x1, guard_y1 = task["guard"]
+                    weights = task["feather_weights"]
+                    output_accum[:, :, guard_y0:guard_y1, guard_x0:guard_x1] += (
+                        sampled_batch[task_index : task_index + 1] * weights
+                    )
+                    weight_accum[:, :, guard_y0:guard_y1, guard_x0:guard_x1] += weights
 
         self.previous_camera = reference_viewpoint
-        output = output_accum / np.maximum(weight_accum, 1e-6)
-        return np.clip(output + 0.5, 0.0, 255.0).astype(np.uint8)
+        output = output_accum / torch.clamp(weight_accum, min=1e-6)
+        return render_to_uint8(output[0])
 
     def _make_camera(
         self,

@@ -316,17 +316,19 @@ tile 之间必须有 guard band，不能只渲染刚好覆盖目标区域的最�
 - Gaussian splat 具有屏幕空间半径，靠近 tile 边界的 Gaussian 可能对边界外像素有贡献。
 - 重投影采样需要插值，边缘没有冗余像素时容易出现空洞、锯齿或接缝。
 
-建议每个 tile 在目标图像坐标中向外扩展 `32` 到 `128` 像素作为 guard band，再根据扩展后的四角光线确定局部 tile 相机视场。合成时只把 tile 的核心区域写回目标图；重叠区域可以直接选择离 tile 中心更近的结果，也可以按距离做 feather blending。
+建议每个 tile 在目标图像坐标中向外扩展 `32` 到 `128` 像素作为 guard band，再根据扩展后的四角光线确定局部 tile 相机视场。当前实现使用 `64` 像素 guard band，并让 guard 区域也参与最终图像合成：tile 核心区域权重为 `1`，进入 guard band 后按距离平滑衰减到 `0`，多个 tile 的重叠区域做加权平均。这就是当前实现中的 feather blending。它的目的不是改变投影模型，而是避免 tile 边界处因为单 tile 截断、插值和 splat 半径不足产生硬接缝。
 
 ### 4.5 并行渲染与速度收益
 
-分 tile 后，每个 tile 的渲染任务相互独立，同一帧内可以并行执行。可用的并行方式包括：
+分 tile 后，每个 tile 的渲染任务相互独立，同一帧内可以并行执行。当前实现采用单 GPU 内的小批量并行方式：
 
-- 单 GPU 上按 tile 顺序或小批量渲染，降低每次 rasterization 的局部 FOV 和超大 splat 压力。
-- 双 GPU 上把 tile 分配到不同 GPU，最后在 CPU 或指定 GPU 上合成。
-- 视频任务中同时做帧间流水线，例如 GPU 渲染下一批 tile，CPU 合成上一帧。
+- 先按 tile 渲染图尺寸分组，相同尺寸的 tile 组成一个 batch。
+- 每个 batch 最多放 `4` 个 tile 相机，调用 gsplat 的 batched cameras rasterization，一次完成多个局部相机渲染。
+- tile 渲染只取最终需要的 RGB，不再额外 rasterize depth 和 3D feature 通道。
+- 每个 tile 的实车像素到 tile 图像的 `grid_sample` 网格和 feather 权重缓存在 GPU 上。
+- 合成阶段也在 GPU 上完成：对 tile 渲染图做 `grid_sample` 双线性重采样，再按 feather 权重累加，最后只把整张结果图同步回 CPU。
 
-理论上，tile 总像素数加上 guard band 会略高于原图，合成也会增加一次重采样开销。但局部 FOV 变小后，边缘超大椭圆减少，rasterizer 中单个 Gaussian 覆盖的像素范围会下降，尤其对 `front_120` 这种 $133^\circ$ 级别的相机有机会减少无效的大面积 splat。实际速度收益需要用当前场景实测确认，不能只按像素数估计。
+这样避免了旧实现中每个 tile 单独渲染、单独同步到 CPU、再用 NumPy 做大面积双线性采样的开销。pandaset/003 的 profiling 显示，分块路径中 CPU 重投影和 feather 合成曾是主要耗时；迁移到 GPU 合成后，分块渲染速度已经接近整图 pinhole 渲染。
 
 ### 4.6 预期效果和限制
 
@@ -339,3 +341,115 @@ tile 之间必须有 guard band，不能只渲染刚好覆盖目标区域的最�
 - 实车相机畸变模型缺失导致的真实图像和 pinhole 图像差异。
 
 验证时应同时检查两类结果：第一是边缘区域的建筑、车辆、道路边界是否明显少拖影；第二是最终合成图像是否仍满足实车相机内参，即同一个目标像素 $(u, v)$ 对应的光线仍由 $K_{\mathrm{real}}^{-1}[u, v, 1]^{\mathsf{T}}$ 定义。
+
+## 5. 当前基线方案
+
+当前工程基线是 `2 x 2` 分块局部相机渲染，加 `64` 像素 guard band、feather blending、单 GPU tile batch 并行渲染和 GPU 合成。`max_radius_clip=0` 在这里表示不做 Gaussian 屏幕半径裁剪；该半径裁剪只是临时试验项，当前核心渲染类中已经不保留这个参数。
+
+核心入口仍然是 `GaussianSceneRenderer.render_camera()`。默认参数为：
+
+```text
+tile_rows = 1
+tile_cols = 1
+```
+
+默认值表示不分块，保持原始整图渲染路径。需要启用当前 `2 x 2` 基线时，在 `compose_compare_video.py` 命令行中传：
+
+```bash
+--render-tile-rows 2 \
+--render-tile-cols 2
+```
+
+当前 pandaset/003 已生成的基线文件为：
+
+```text
+outputs/aeb_hil_vil_render/pandaset/003/aeb_real_front_120_rendered_tile2x2_feather_parallel.mp4
+outputs/aeb_hil_vil_render/pandaset/003/aeb_real_front_120_rendered_tile2x2_feather_parallel.timing.csv
+```
+
+速度统计如下：
+
+| 方案 | 分辨率 | 帧数 | 平均耗时 | 最小/最大耗时 | 对应帧率 | 说明 |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 整图 pinhole | `3840 x 2160` | `80` | `176.120ms` | `159.655/212.675ms` | `5.68FPS` | 质量问题最明显，速度较快 |
+| 当前 `2 x 2` + feather 并行 GPU 合成 | `3840 x 2160` | `80` | `238.908ms` | `188.640/724.076ms` | `4.19FPS` | 当前工程基线 |
+
+当前 `2 x 2` 并行版本的首帧包含 tile 合成网格和 feather 权重的 GPU 缓存构建，因此最大耗时为 `724.076ms`；去掉首帧后平均耗时约 `232.766ms`。它比整图 pinhole 慢，但保留了分块局部相机对超广角边缘涂抹的缓解效果，是当前质量和速度的工程折中基线。
+
+## 6. 当前渲染效果讨论
+
+### 6.1 问题缓解了，但没有完全解决
+
+分块渲染 + feather 后，硬接缝和一部分由超广角边缘 splat 过大导致的拖影得到缓解，但视频中仍能看到上部中间区域存在明显黑块、拉伸和不稳定纹理。这说明当前残留问题不只是 rasterization 的局部投影问题，还和训练数据覆盖范围、场景几何质量有关。
+
+### 6.2 pandaset/003 原始前视不是大广角
+
+pandaset/003 原始 `front_camera` 内参为：
+
+```text
+resolution = 1920 x 1080
+fx = 1970.0131
+fy = 1970.0091
+cx = 970.0002
+cy = 483.2988
+```
+
+按 pinhole 模型计算：
+
+```text
+front_camera:
+  horizontal FOV ≈ 51.96°
+  vertical FOV   ≈ 30.64°
+  diagonal FOV   ≈ 58.40°
+```
+
+而当前实车 AEB 前视相机 `front_120/cam1` 为：
+
+```text
+resolution = 3840 x 2160
+horizontal FOV ≈ 133.26°
+vertical FOV   ≈ 104.94°
+```
+
+因此，现在是在用一个远大于原始中心前视相机视场的目标相机做渲染。`front_120` 输出中有大量像素对应的光线，原始中心前视相机从未观测过。PandaSet 还有 `front_left_camera`、`front_right_camera`、`left_camera`、`right_camera` 等相机，它们对水平侧向区域有补充，但它们不是同一个光心的中心大广角前视相机。
+
+### 6.3 为什么坏的位置主要在上部中间，而不是四周都一样坏
+
+问题不会按画面四周均匀出现，因为训练观测覆盖、场景内容和 3DGS 几何质量都不是均匀的。
+
+从垂直视场看：
+
+```text
+PandaSet 原始 front_camera:
+  上方视角约 13.8°
+  下方视角约 16.5°
+
+PandaSet front_left/front_right 等宽一些的相机:
+  垂直总 FOV 约 60°
+  单侧向上大约 28° 到 31°
+
+当前 front_120/cam1:
+  上方视角约 52.5°
+  下方视角约 52.4°
+```
+
+这意味着 `front_120` 的上半部，尤其是画面最上方到上中部，有一大块超过了 PandaSet 原始相机的上视角覆盖。按 `front_120` 内参粗略估计，画面 `y < 620` 左右已经超过约 `29^\circ` 上视角，基本超出 PandaSet 其他相机的垂直覆盖；`y < 875` 左右已经超出原始中心 `front_camera` 的上视角。
+
+左右方向没有同样严重，主要是因为 PandaSet 的前左、前右、左、右相机给水平侧向区域提供了一部分观测。虽然这些相机不是 `front_120` 的同一光心，但建筑立面、路边车辆和人行道至少在训练图像中出现过。
+
+下半部分也相对更稳定，因为道路、车道线、停靠车辆会在连续帧中反复出现，几何约束比天空和高处结构更强。上部中间则经常对应天空、楼顶、树冠、远处高处边缘等内容，这些区域本身几何弱、纹理少或结构很薄，容易在 3DGS 中形成大 Gaussian、漂浮 Gaussian 或错误深度。`front_120` 再把这些高仰角区域拉进画面后，黑块、拖影和条纹就会更明显。
+
+### 6.4 使用实车大广角图训练的预期
+
+如果后续使用实车 `front_120` 大广角图片训练，并且训练相机内参、外参和投影模型正确，当前上部中间区域应明显改善。原因是训练视场和目标渲染视场一致，`front_120` 高仰角区域不再完全依赖窄前视和侧向相机外推。
+
+训练前把实车大广角图片重采样为高宽各一半是可以接受的工程折中，但必须同步缩放内参：
+
+```text
+width, height 乘以 0.5
+fx, fy, cx, cy 乘以 0.5
+```
+
+这样 FOV 不变，每个像素对应的光线方向仍和原始大广角图像一致。半分辨率训练会降低纹理细节上限，但能保留完整视场覆盖，通常比用窄前视数据外推 `front_120` 更可靠。
+
+这里还必须确认实车大广角图像的投影模型。如果实车图像是 fisheye 或带明显畸变的图像，而训练和渲染仍按 pinhole 处理，效果仍会受限。更稳妥的做法是先把实车图像 undistort/rectify 到 pinhole 图像并使用对应内参训练，或者在训练和渲染链路中显式支持真实 ray/LUT 相机模型。
