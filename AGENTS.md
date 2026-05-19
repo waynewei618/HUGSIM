@@ -12,7 +12,7 @@
 
 ## GPU Usage
 
-- 本机有两张 GPU 卡；任何需要使用 GPU 的任务，执行前先在 Docker 容器内检查 GPU 占用情况。
+- 本机如果有两张 GPU 卡；任何需要使用 GPU 的任务，执行前先在 Docker 容器内检查 GPU 占用情况。
 - 优先选择空闲或显存占用更低的 GPU，并通过 `CUDA_VISIBLE_DEVICES=<gpu_id>` 等方式显式指定使用的 GPU。
 
 ## Domestic Download Mirrors
@@ -29,6 +29,7 @@
 ## Documentation Conventions
 
 - `docs/` 下的文档名即文档主题；内容应围绕该主题展开，不要混入其他主题的通用说明。
+- 说明性文档默认贴近用户当前写作风格：直入主题、少铺垫；先写现象、数据和结论，再写原因分析；保留必要表格和示例，不追加未验证的方案占位；公式统一使用 LaTeX 行内公式 `$...$` 或块级公式 `$$...$$`，不要用普通 text 代码块表达数学公式。
 - 数据集流程文档（如 Waymo、NuScenes 等）只记录该数据集的输入、运行命令、流程步骤、输出结构和该流程直接读取的路径/变量。
 - 环境配置、依赖版本、CUDA/PyTorch/xFormers 适配、pixi 安装、通用模型权重管理等内容应写入 `docs/pixi_environment_setup.md`，不要散落到具体数据集流程文档。
 - 规则性约定和长期偏好应写入 `AGENTS.md`，不要写进具体流程文档作为临时 FAQ。

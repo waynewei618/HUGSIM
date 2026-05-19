@@ -201,3 +201,141 @@ u = f_x \tan(\theta)
 $$
 
 当 $\theta$ 接近光轴方向时，$\tan(\theta)$ 的局部变化较平缓；当 $\theta$ 增大到超广角边缘时，$\tan(\theta)$ 和它的高阶变化都会快速增大，线性近似误差也随之放大。
+
+## 4. 解决方案：分 tile 局部相机渲染，再重投影合成实车前视图
+
+可行的解决方向是：最终输出仍然是一张满足实车前视相机内参的图像，但渲染过程不再直接使用一个完整的超广角 pinhole 相机，而是把目标图像按 tile 切分。每个 tile 使用一个局部小 FOV pinhole 相机单独渲染，再按像素光线关系重采样回目标实车图像。
+
+这样做的目的不是改变最终相机模型，而是让每次 3DGS rasterization 只处理靠近局部光轴的一小块视场。局部 tile 相机的视场角明显小于完整 `front_120` 相机，tile 内 $|x|$、$|y|$ 更小，屏幕空间 2D 协方差不会在整幅超广角边缘被过度拉长。最终合成时再恢复到实车相机的像素坐标，因此输出图像仍然按实车前视内参定义。
+
+### 4.1 不能只做子视口裁剪
+
+如果只是把完整相机的图像切成多个子视口，并给每个 tile 使用：
+
+$$
+K_{\mathrm{tile}} =
+\begin{bmatrix}
+f_x & 0 & c_x - x_0 \\
+0 & f_y & c_y - y_0 \\
+0 & 0 & 1
+\end{bmatrix}
+$$
+
+其中 $(x_0, y_0)$ 是 tile 左上角在完整图像中的坐标，那么每个 tile 渲染出的像素可以直接贴回原图。这种方式在几何上等价于完整实车相机的子视口，拼接后内参关系严格正确。
+
+但这种方法不能解决边缘涂抹。因为 tile 边缘区域对应的仍然是完整超广角相机中的大角度光线，Gaussian 在该位置的归一化像平面坐标 $x = X_c / Z_c$、$y = Y_c / Z_c$ 仍然很大，2D 协方差仍会被拉成长椭圆。它只改变了渲染画布大小，没有改变局部投影条件。
+
+### 4.2 局部 tile 相机的构造
+
+真正有用的 tile 渲染应当让每个 tile 拥有自己的局部光轴。设最终实车相机为：
+
+$$
+K_{\mathrm{real}},\quad W,\quad H,\quad T_{\mathrm{real}}^{\mathrm{world}}
+$$
+
+其中 $K_{\mathrm{real}}$ 是实车前视内参，$W,H$ 是最终图像宽高，$T_{\mathrm{real}}^{\mathrm{world}}$ 是实车相机到世界坐标系的外参。
+
+把目标图像划分为若干 tile，每个 tile 覆盖目标图像中的区域：
+
+$$
+[x_0, x_1) \times [y_0, y_1)
+$$
+
+先取 tile 中心像素：
+
+$$
+p_c =
+\begin{bmatrix}
+(x_0 + x_1) / 2 \\
+(y_0 + y_1) / 2 \\
+1
+\end{bmatrix}
+$$
+
+用实车相机内参反投影得到该 tile 中心光线：
+
+$$
+d_c =
+\frac{K_{\mathrm{real}}^{-1} p_c}
+{\left\lVert K_{\mathrm{real}}^{-1} p_c \right\rVert}
+$$
+
+然后构造一个局部 tile 相机，使它的光轴对准 $d_c$。tile 相机和实车相机共享同一个相机中心，只改变朝向：
+
+$$
+T_{\mathrm{tile}}^{\mathrm{world}}
+= T_{\mathrm{real}}^{\mathrm{world}} R_{\mathrm{tile}}
+$$
+
+其中 $R_{\mathrm{tile}}$ 表示从局部 tile 相机坐标系到实车相机坐标系的旋转。它的第三列或前向轴应与 $d_c$ 对齐，具体轴向要与当前 HUGSIM/gsplat 相机坐标约定保持一致。
+
+tile 相机内参 $K_{\mathrm{tile}}$ 使用局部小 FOV。可以按 tile 四角相对 $d_c$ 的最大夹角来计算，也可以先采用固定重叠视场。原则是 tile 相机视场必须完整覆盖目标 tile 加 guard band 对应的实车相机光线。
+
+### 4.3 合成方式：按实车像素反查 tile 图像
+
+局部 tile 渲染不能直接贴回目标图像，因为 tile 相机的光轴已经改变。合成时应以最终实车图像为准，对每个目标像素 $p_{\mathrm{real}} = [u, v, 1]^{\mathsf{T}}$，先得到它在实车相机坐标系下的光线：
+
+$$
+d_{\mathrm{real}} = K_{\mathrm{real}}^{-1} p_{\mathrm{real}}
+$$
+
+再变换到对应 tile 相机坐标系：
+
+$$
+d_{\mathrm{tile}} = R_{\mathrm{tile}}^{-1} d_{\mathrm{real}}
+$$
+
+最后投影到 tile 渲染图：
+
+$$
+q_{\mathrm{tile}}
+\sim
+K_{\mathrm{tile}} d_{\mathrm{tile}}
+=
+K_{\mathrm{tile}} R_{\mathrm{tile}}^{-1} K_{\mathrm{real}}^{-1} p_{\mathrm{real}}
+$$
+
+也就是：
+
+$$
+q_{\mathrm{tile}}
+\sim
+H_{\mathrm{real}\rightarrow\mathrm{tile}} p_{\mathrm{real}},
+\quad
+H_{\mathrm{real}\rightarrow\mathrm{tile}}
+=
+K_{\mathrm{tile}} R_{\mathrm{tile}}^{-1} K_{\mathrm{real}}^{-1}
+$$
+
+由于 tile 相机和实车相机中心相同，二者之间只有纯旋转，不涉及深度，因此这一步是一个 2D homography。实际合成时遍历目标 tile 的像素区域，用 $H_{\mathrm{real}\rightarrow\mathrm{tile}}$ 反查 tile 渲染图并双线性采样。这样最终图像的每个像素仍然对应实车相机 $K_{\mathrm{real}}$ 定义的那条光线。
+
+### 4.4 边界和重叠
+
+tile 之间必须有 guard band，不能只渲染刚好覆盖目标区域的最小视场。原因有两个：
+
+- Gaussian splat 具有屏幕空间半径，靠近 tile 边界的 Gaussian 可能对边界外像素有贡献。
+- 重投影采样需要插值，边缘没有冗余像素时容易出现空洞、锯齿或接缝。
+
+建议每个 tile 在目标图像坐标中向外扩展 `32` 到 `128` 像素作为 guard band，再根据扩展后的四角光线确定局部 tile 相机视场。合成时只把 tile 的核心区域写回目标图；重叠区域可以直接选择离 tile 中心更近的结果，也可以按距离做 feather blending。
+
+### 4.5 并行渲染与速度收益
+
+分 tile 后，每个 tile 的渲染任务相互独立，同一帧内可以并行执行。可用的并行方式包括：
+
+- 单 GPU 上按 tile 顺序或小批量渲染，降低每次 rasterization 的局部 FOV 和超大 splat 压力。
+- 双 GPU 上把 tile 分配到不同 GPU，最后在 CPU 或指定 GPU 上合成。
+- 视频任务中同时做帧间流水线，例如 GPU 渲染下一批 tile，CPU 合成上一帧。
+
+理论上，tile 总像素数加上 guard band 会略高于原图，合成也会增加一次重采样开销。但局部 FOV 变小后，边缘超大椭圆减少，rasterizer 中单个 Gaussian 覆盖的像素范围会下降，尤其对 `front_120` 这种 $133^\circ$ 级别的相机有机会减少无效的大面积 splat。实际速度收益需要用当前场景实测确认，不能只按像素数估计。
+
+### 4.6 预期效果和限制
+
+该方案能缓解的问题是：由于超广角 pinhole 边缘远离光轴，导致 3DGS 屏幕空间 splat 被拉成长条后产生的涂抹、拖影和结构模糊。
+
+该方案不能解决的问题是：
+
+- 训练数据本身没有覆盖到的视角或遮挡区域。
+- Gaussian 模型本身几何错误、漂浮物或动态物体轨迹错误。
+- 实车相机畸变模型缺失导致的真实图像和 pinhole 图像差异。
+
+验证时应同时检查两类结果：第一是边缘区域的建筑、车辆、道路边界是否明显少拖影；第二是最终合成图像是否仍满足实车相机内参，即同一个目标像素 $(u, v)$ 对应的光线仍由 $K_{\mathrm{real}}^{-1}[u, v, 1]^{\mathsf{T}}$ 定义。
