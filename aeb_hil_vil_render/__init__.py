@@ -1,5 +1,5 @@
 """AEB HIL/VIL rendering tools."""
 
-from .gaussian_scene_renderer import CameraRenderRequest, GaussianSceneRenderer
+from .gaussian_scene_renderer import GaussianSceneRenderer
 
-__all__ = ["CameraRenderRequest", "GaussianSceneRenderer"]
+__all__ = ["GaussianSceneRenderer"]

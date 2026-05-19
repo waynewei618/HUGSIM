@@ -1,6 +1,8 @@
 import argparse
+import csv
 import json
 import sys
+import time
 from pathlib import Path
 
 import imageio.v2 as imageio
@@ -13,7 +15,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(REPO_ROOT))
 
 from aeb_hil_vil_render.gaussian_scene_renderer import (
-    CameraRenderRequest,
     GaussianSceneRenderer,
     as_camera_intrinsics,
     as_transform,
@@ -229,7 +230,14 @@ def camera_with_real_vehicle_intrinsics(camera, camera_intrinsics_path, camera_i
     return output
 
 
-def build_camera_render_requests(trajectory, camera):
+def render_planes_from_camera(camera):
+    return (
+        float(camera.get("near_plane", camera.get("near", 0.01))),
+        float(camera.get("far_plane", camera.get("far", 500.0))),
+    )
+
+
+def build_camera_inputs(trajectory, camera):
     frames = trajectory.get("frames")
     if not frames:
         raise ValueError("trajectory.json must contain a non-empty frames list")
@@ -238,26 +246,24 @@ def build_camera_render_requests(trajectory, camera):
     camera_to_ego = as_transform(required(camera, "camera_to_ego", "camera.json"), "camera.json camera_to_ego")
     width = int(required(camera, "width", "camera.json"))
     height = int(required(camera, "height", "camera.json"))
-    near_plane = float(camera.get("near_plane", camera.get("near", 0.01)))
-    far_plane = float(camera.get("far_plane", camera.get("far", 500.0)))
 
-    requests = []
+    camera_inputs = []
     for index, frame in enumerate(frames):
         ego_to_world = ego_pose_from_frame(frame, index, trajectory)
-        requests.append(
-            CameraRenderRequest(
-                intrinsics=intrinsics,
-                camera_to_world=ego_to_world @ camera_to_ego,
-                width=width,
-                height=height,
-                timestamp=frame_timestamp(frame, index),
-                dynamics=frame.get("dynamics", {}) if isinstance(frame, dict) else {},
-                image_name=f"camera_{index:06d}",
-                near_plane=near_plane,
-                far_plane=far_plane,
-            )
+        camera_to_world = ego_to_world @ camera_to_ego
+        world_to_camera = np.linalg.inv(camera_to_world).astype(np.float32)
+        camera_inputs.append(
+            {
+                "intrinsics": intrinsics,
+                "world_to_camera": world_to_camera,
+                "width": width,
+                "height": height,
+                "timestamp": frame_timestamp(frame, index),
+                "dynamics": frame.get("dynamics", {}) if isinstance(frame, dict) else {},
+                "image_name": f"camera_{index:06d}",
+            }
         )
-    return requests
+    return camera_inputs
 
 
 def as_rgb(image):
@@ -282,7 +288,62 @@ def side_by_side_frame(original_frame, rendered_frame):
     return np.concatenate([original_frame, rendered_frame], axis=1)
 
 
-def write_rendered_camera_video(renderer, render_requests, fps, output_video, desc, postprocess=None):
+def save_render_timing_csv(records, output_path):
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "frame_index",
+                "image_name",
+                "width",
+                "height",
+                "timestamp",
+                "render_camera_ms",
+                "postprocess_ms",
+                "total_ms",
+            ],
+        )
+        writer.writeheader()
+        for record in records:
+            writer.writerow(
+                {
+                    **record,
+                    "render_camera_ms": f"{record['render_camera_ms']:.6f}",
+                    "postprocess_ms": f"{record['postprocess_ms']:.6f}",
+                    "total_ms": f"{record['total_ms']:.6f}",
+                }
+            )
+    print(f"Saved render timing to {output_path}")
+
+
+def print_render_timing_summary(records, title="Render timing"):
+    if not records:
+        print(f"{title}: no timing records")
+        return
+
+    total = np.asarray([record["total_ms"] for record in records], dtype=np.float64)
+    render_camera = np.asarray([record["render_camera_ms"] for record in records], dtype=np.float64)
+    print(
+        f"{title}: count={len(records)} "
+        f"total_ms(avg/min/max)={total.mean():.3f}/{total.min():.3f}/{total.max():.3f} "
+        f"render_camera_ms(avg/min/max)={render_camera.mean():.3f}/"
+        f"{render_camera.min():.3f}/{render_camera.max():.3f}"
+    )
+
+
+def write_rendered_camera_video(
+    renderer,
+    camera_inputs,
+    fps,
+    output_video,
+    desc,
+    postprocess=None,
+    timing_records=None,
+    near_plane=None,
+    far_plane=None,
+):
     output_video = Path(output_video)
     output_video.parent.mkdir(parents=True, exist_ok=True)
     writer = imageio.get_writer(
@@ -295,8 +356,30 @@ def write_rendered_camera_video(renderer, render_requests, fps, output_video, de
 
     frame_count = 0
     try:
-        for render_request in tqdm(render_requests, desc=desc):
-            writer.append_data(renderer.render_request(render_request, postprocess=postprocess))
+        for camera_input in tqdm(camera_inputs, desc=desc):
+            render_start = time.perf_counter()
+            image = renderer.render_camera(**camera_input, near_plane=near_plane, far_plane=far_plane)
+            render_camera_ms = (time.perf_counter() - render_start) * 1000.0
+
+            postprocess_start = time.perf_counter()
+            if postprocess is not None:
+                image = postprocess(image)
+            postprocess_ms = (time.perf_counter() - postprocess_start) * 1000.0
+
+            if timing_records is not None:
+                timing_records.append(
+                    {
+                        "frame_index": frame_count,
+                        "image_name": camera_input["image_name"],
+                        "width": camera_input["width"],
+                        "height": camera_input["height"],
+                        "timestamp": camera_input["timestamp"],
+                        "render_camera_ms": render_camera_ms,
+                        "postprocess_ms": postprocess_ms,
+                        "total_ms": render_camera_ms + postprocess_ms,
+                    }
+                )
+            writer.append_data(image)
             frame_count += 1
     finally:
         writer.close()
@@ -318,7 +401,8 @@ def compose_reconstruction_compare_video(
     trajectory = load_json(trajectory_path)
     camera = load_json(camera_path)
     frames = trajectory["frames"]
-    render_requests = build_camera_render_requests(trajectory, camera)
+    camera_inputs = build_camera_inputs(trajectory, camera)
+    near_plane, far_plane = render_planes_from_camera(camera)
     fps = infer_fps(trajectory, camera, frames)
     if fps <= 0:
         raise ValueError("video fps must be greater than 0")
@@ -326,7 +410,7 @@ def compose_reconstruction_compare_video(
     output_video = Path(output_video)
     output_video.parent.mkdir(parents=True, exist_ok=True)
 
-    renderer = GaussianSceneRenderer(scene_path)
+    renderer = GaussianSceneRenderer(scene_path, near_plane=near_plane, far_plane=far_plane)
     original_reader = imageio.get_reader(original_video)
     writer = imageio.get_writer(
         output_video,
@@ -338,21 +422,21 @@ def compose_reconstruction_compare_video(
 
     frame_count = 0
     try:
-        paired_frames = zip(render_requests, original_reader)
-        for render_request, original_frame in tqdm(
+        paired_frames = zip(camera_inputs, original_reader)
+        for camera_input, original_frame in tqdm(
             paired_frames,
-            total=len(render_requests),
+            total=len(camera_inputs),
             desc="Rendering and composing compare video",
         ):
-            rendered_frame = renderer.render_request(render_request)
+            rendered_frame = renderer.render_camera(**camera_input)
             writer.append_data(side_by_side_frame(original_frame, rendered_frame))
             frame_count += 1
     finally:
         writer.close()
         original_reader.close()
 
-    if frame_count != len(render_requests):
-        print(f"Warning: wrote {frame_count} frames for {len(render_requests)} trajectory frames")
+    if frame_count != len(camera_inputs):
+        print(f"Warning: wrote {frame_count} frames for {len(camera_inputs)} trajectory frames")
     print(f"Saved comparison video to {output_video}")
 
     if real_camera_output is not None:
@@ -361,25 +445,28 @@ def compose_reconstruction_compare_video(
             real_camera_intrinsics_path or REAL_VEHICLE_FRONT_CAMERA_INTRINSICS,
             real_camera_id,
         )
-        real_render_requests = build_camera_render_requests(trajectory, real_camera)
+        real_camera_inputs = build_camera_inputs(trajectory, real_camera)
+        real_near_plane, real_far_plane = render_planes_from_camera(real_camera)
         real_fps = infer_fps(trajectory, real_camera, frames)
         renderer.reset_temporal_state()
-        renderer.enable_timing(clear=True)
+        timing_records = []
         write_rendered_camera_video(
             renderer,
-            real_render_requests,
+            real_camera_inputs,
             real_fps,
             real_camera_output,
             f"Rendering real vehicle pinhole camera {real_camera_id}",
+            timing_records=timing_records,
+            near_plane=real_near_plane,
+            far_plane=real_far_plane,
         )
         timing_output = (
             Path(real_camera_timing_output)
             if real_camera_timing_output is not None
             else Path(real_camera_output).with_suffix(".timing.csv")
         )
-        renderer.save_timing_csv(timing_output)
-        renderer.print_timing_summary(f"Real vehicle camera {real_camera_id} render timing")
-        renderer.disable_timing()
+        save_render_timing_csv(timing_records, timing_output)
+        print_render_timing_summary(timing_records, f"Real vehicle camera {real_camera_id} render timing")
 
 
 def main():

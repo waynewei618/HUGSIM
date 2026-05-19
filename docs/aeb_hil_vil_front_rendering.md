@@ -14,7 +14,7 @@
 
 - `reconstruction_compare.sh`：一键生成重建效果观察用的原图/渲染左右对比视频。
 - `extract_scene_inputs.py`：从训练场景中提取示例渲染输入。
-- `gaussian_scene_renderer.py`：核心 3DGS 场景渲染类，加载场景权重后，根据任意相机内参和 `camera_to_world` 外参返回图像。
+- `gaussian_scene_renderer.py`：核心 3DGS 场景渲染类，加载场景权重和渲染默认参数后，根据传入的相机内参、`world_to_camera` 外参、输出分辨率和时间戳返回图像。
 - `compose_compare_video.py`：根据自车轨迹和相机标定逐帧调用核心渲染类，并将原采集视频与渲染图像左右合成。
 
 ## 一键观察重建效果
@@ -50,7 +50,7 @@ outputs/aeb_hil_vil_render/<dataset>/<scene>/aeb_trajectory_plots.png
 其中 `aeb_front_compare.mp4` 左侧为原采集图片合成视频，右侧为 3DGS 渲染视频，用于快速观察重建效果。
 `aeb_real_front_120_rendered.mp4` 使用 `camera_intrinsics.json` 中 `camera_id` 为 `front_120/cam1` 的实车 AEB 前视相机内参渲染，外参沿用 `aeb_camera.json` 中的 `camera_to_ego`。
 对 `front_120/cam1` 这类超广角相机，当前程序只读取 VTD 配置中的 `near/far`，然后按该相机的 pinhole 内参直接渲染；不再自动分块、不做 ray projection，也不使用 `postprocess_lookup_tables` 做查表畸变映射。
-`aeb_real_front_120_rendered.timing.csv` 记录实车相机每帧渲染耗时，包括 Camera 构造、CUDA render、uint8 后处理和总耗时。
+`aeb_real_front_120_rendered.timing.csv` 由调用脚本记录实车相机每帧耗时，包括 `render_camera()` 调用耗时、可选后处理耗时和二者合计；核心渲染类内部不维护 timing 状态。
 `aeb_trajectory_plots.png` 将里程-高度和水平面 x-y 轨迹绘制在同一张图中；当前 HUGSIM 场景坐标里高度使用 scene `y`，水平面 x-y 使用 `(scene z, -scene x)`。
 
 ## 1. 从训练场景提取输入
@@ -85,16 +85,16 @@ pixi run python aeb_hil_vil_render/extract_scene_inputs.py \
 from aeb_hil_vil_render.gaussian_scene_renderer import GaussianSceneRenderer
 
 renderer = GaussianSceneRenderer("/workspace/HUGSIM/outputs/waymo/1680166")
-image = renderer.render_image(
+image = renderer.render_camera(
     intrinsics=intrinsics,
-    camera_to_world=camera_to_world,
+    world_to_camera=world_to_camera,
     width=960,
     height=640,
     timestamp=0.0,
 )
 ```
 
-其中 `image` 是 `uint8` RGB 图像。`__init__` 只加载一次 `cfg.yaml`、`scene.pth` 和 `dynamic_*.pth`；后续每帧只传相机内参、相机到世界坐标系的外参、分辨率、`near/far` 和可选动态物体变换。当前核心渲染类保持单个 pinhole 相机渲染，不包含超广角分块、ray map 或 lookup table 后处理。
+其中 `image` 是 `uint8` RGB 图像。`GaussianSceneRenderer.__init__` 只加载一次 `cfg.yaml`、`scene.pth`、`dynamic_*.pth`、训练时的背景设置和渲染默认参数；`near/far` 默认沿用上游训练渲染函数的 `0.01/500.0`，调用者需要时可显式覆盖。`render_camera()` 直接接收构造底层 `scene.cameras.Camera` 所需的相机输入，外参输入约定固定为 `world_to_camera`，底层 HUGSIM 需要的 `camera_to_world` 只在渲染器内部由 `world_to_camera` 求逆得到。核心渲染类只负责渲染一张图，不维护耗时统计、不保存图片/视频、不做调用侧后处理。
 
 ## 3. AEB 轨迹和相机标定
 
@@ -156,9 +156,10 @@ image = renderer.render_image(
 
 ```text
 camera_to_world = ego_to_world @ camera_to_ego
+world_to_camera = inverse(camera_to_world)
 ```
 
-然后把每帧的 `intrinsics`、`camera_to_world`、`width`、`height` 传给 `GaussianSceneRenderer.render_image()`。
+然后把每帧的 `intrinsics`、`world_to_camera`、`width`、`height`、`timestamp` 直接传给 `GaussianSceneRenderer.render_camera()`。
 
 ## 4. 合成对比视频
 
