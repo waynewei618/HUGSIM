@@ -133,21 +133,20 @@ aeb_trajectory_plots.png     # 里程-高度和水平面轨迹图
 该步骤只用于重建效果观察，不改变后续 GUI scenario 配置和闭环仿真输入。
 
 ## 6. Scenario 配置
-车辆模型也需要转换：
+车辆模型已完成转换，默认直接使用转换后的车辆模型目录：
 
 ```bash
-python eval_render/convert_vehicles.py \
-  --vehicle_path ${PATH_3DRealCar}
+export PATH_3DRealCar=/data/realcar3d
 ```
 
-输出：
+已存在的车辆模型输出：
 
 ```text
 ${PATH_3DRealCar}/converted/*.ply
 ${PATH_3DRealCar}/converted/*.splat
 ```
 
-使用 GUI 放置车辆、编辑场景交互配置，并导出 scenario yaml。
+不需要重复运行 `eval_render/convert_vehicles.py`。使用 GUI 放置车辆、编辑场景交互配置，并导出 scenario yaml。
 
 ```bash
 cd gui
