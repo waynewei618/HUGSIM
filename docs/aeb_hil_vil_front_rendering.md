@@ -97,6 +97,8 @@ image = renderer.render_camera(
 
 其中 `image` 是 `uint8` RGB 图像。`GaussianSceneRenderer.__init__` 只加载一次 `cfg.yaml`、`scene.pth`、`dynamic_*.pth`、训练时的背景设置和渲染默认参数；`near/far` 默认沿用上游训练渲染函数的 `0.01/500.0`，调用者需要时可显式覆盖。`render_camera()` 直接接收构造底层 `scene.cameras.Camera` 所需的相机输入，外参输入约定固定为 `camera_to_world`。核心渲染类只负责渲染一张图，不维护耗时统计、不保存图片/视频、不做调用侧后处理，也不负责超广角分块合成。
 
+AEB 静态非原生车辆是一个可选初始化能力。传入 `ego_trajectory`、`insert_vehicle_id` 和可选 `insert_vehicle_s` 后，渲染器会加载轨迹 JSON，根据 `s` 生成固定 `body_to_world`，再调用 `static_vehicle_insertion.py` 加载对应 3DRealCar 模型。`static_vehicle_insertion.py` 不读取轨迹，也不决定插入位置；它只接收非原生车路径和已经算好的插入位姿。
+
 ## 3. AEB 轨迹和相机标定
 
 `trajectory.json` 最小结构：
@@ -159,7 +161,7 @@ image = renderer.render_camera(
 camera_to_world = ego_to_world @ camera_to_ego
 ```
 
-然后把每帧的 `intrinsics`、`camera_to_world`、`width`、`height`、`timestamp` 传给渲染入口。`compose_compare_video.py` 默认用 `TiledCameraRenderer` 包装 `GaussianSceneRenderer`，`--render-tile-rows 1 --render-tile-cols 1` 时会转调核心整图渲染路径。
+然后把每帧的 `intrinsics`、`camera_to_world`、`width`、`height`、`timestamp` 传给渲染入口。`compose_compare_video.py` 默认用 `TiledCameraRenderer` 包装 `GaussianSceneRenderer`，`--render-tile-rows 1 --render-tile-cols 1` 时会转调核心整图渲染路径。需要插入 AEB 静止前车时，`compose_compare_video.py` 会把 `trajectory_path` 传给 `GaussianSceneRenderer`，由渲染器从同一份轨迹 JSON 中按 `mileage` 找到插入位置。
 
 ## 4. 合成对比视频
 

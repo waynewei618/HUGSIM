@@ -1,3 +1,5 @@
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -12,6 +14,12 @@ from aeb_hil_vil_render.camera_math import (
     as_transform,
     render_to_uint8,
 )
+from aeb_hil_vil_render.static_vehicle_insertion import (
+    create_static_vehicle_insertion,
+    ground_height,
+    trajectory_pose_at_s,
+    vehicle_body_to_world,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -19,7 +27,17 @@ sys.path.append(str(REPO_ROOT))
 
 
 class GaussianSceneRenderer:
-    def __init__(self, scene_path, near_plane=0.01, far_plane=500.0):
+    def __init__(
+        self,
+        scene_path,
+        near_plane=0.01,
+        far_plane=500.0,
+        ego_trajectory=None,
+        insert_vehicle_id=None,
+        insert_vehicle_s=None,
+        realcar_path=None,
+        insert_vehicle_height=-0.3,
+    ):
         from gaussian_renderer import GaussianModel, render
         from scene.obj_model import ObjModel
 
@@ -46,6 +64,18 @@ class GaussianSceneRenderer:
             dynamic_model.restore(dynamic_params, None)
             self.dynamic_gaussians[track_id] = dynamic_model
 
+        self.ego_trajectory = self._load_ego_trajectory(ego_trajectory)
+        self.inserted_static_vehicle_dynamics = {}
+        if insert_vehicle_id is not None:
+            body_to_world = self._static_vehicle_transform(insert_vehicle_s, insert_vehicle_height)
+            static_vehicle = create_static_vehicle_insertion(
+                vehicle_path=self._vehicle_path(insert_vehicle_id, realcar_path),
+                body_to_world=body_to_world,
+                sh_degree=cfg.model.sh_degree,
+            )
+            self.dynamic_gaussians[static_vehicle.track_id] = static_vehicle.model
+            self.inserted_static_vehicle_dynamics = static_vehicle.dynamics
+
         bg_color = [1, 1, 1] if cfg.model.white_background else [0, 0, 0]
         self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
         self._render = render
@@ -53,6 +83,27 @@ class GaussianSceneRenderer:
 
     def reset_temporal_state(self):
         self.previous_camera = None
+
+    def _load_ego_trajectory(self, ego_trajectory):
+        if isinstance(ego_trajectory, (str, Path)):
+            with Path(ego_trajectory).open("r") as f:
+                return json.load(f)
+        return ego_trajectory
+
+    def _vehicle_path(self, insert_vehicle_id, realcar_path):
+        vehicle_path = Path(str(insert_vehicle_id))
+        if vehicle_path.exists() or vehicle_path.suffix == ".pth":
+            return vehicle_path
+        realcar_root = Path(realcar_path or os.environ.get("PATH_3DRealCar", "/data/realcar3d"))
+        return realcar_root / str(insert_vehicle_id)
+
+    def _static_vehicle_transform(self, insert_vehicle_s, insert_vehicle_height):
+        frames = self.ego_trajectory["frames"]
+        positions = np.asarray([frame["ego_position"] for frame in frames], dtype=np.float64)
+        mileages = np.asarray([frame["mileage"] for frame in frames], dtype=np.float64)
+        _, position, tangent = trajectory_pose_at_s(positions, mileages, insert_vehicle_s)
+        y = ground_height(self.scene_path, float(position[0]), float(position[2])) + float(insert_vehicle_height)
+        return vehicle_body_to_world(position, tangent, y)
 
     def render_camera(
         self,
@@ -120,6 +171,10 @@ class GaussianSceneRenderer:
             str(track_id): torch.tensor(transform, dtype=torch.float32, device="cuda")
             for track_id, transform in (dynamics or {}).items()
         }
+        for track_id, transform in self.inserted_static_vehicle_dynamics.items():
+            if track_id in dynamics:
+                raise ValueError(f"Inserted static vehicle track id conflicts with frame dynamics: {track_id}")
+            dynamics[track_id] = transform
         return Camera(
             width=width,
             height=height,

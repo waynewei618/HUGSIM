@@ -80,6 +80,25 @@ def parse_args():
         default=1,
         help="Split each render_camera image into this many column tiles. Default: 1.",
     )
+    parser.add_argument(
+        "--insert-static-vehicle-id",
+        help="Optional 3DRealCar vehicle id to insert as a static non-native vehicle.",
+    )
+    parser.add_argument(
+        "--insert-static-vehicle-s",
+        type=float,
+        help="Mileage s on the ego trajectory where the static vehicle is inserted. Default: trajectory max mileage.",
+    )
+    parser.add_argument(
+        "--realcar-path",
+        help="3DRealCar root directory. Default: $PATH_3DRealCar or /data/realcar3d.",
+    )
+    parser.add_argument(
+        "--insert-static-vehicle-height",
+        type=float,
+        default=-0.3,
+        help="Vehicle height offset relative to the estimated ground. Default: -0.3.",
+    )
     return parser.parse_args()
 
 
@@ -449,6 +468,10 @@ def compose_reconstruction_compare_video(
     render_tile_cols=1,
     real_camera_distortion=True,
     real_camera_distortion_parameters=None,
+    insert_static_vehicle_id=None,
+    insert_static_vehicle_s=None,
+    realcar_path=None,
+    insert_static_vehicle_height=-0.3,
 ):
     render_tile_rows = as_positive_int(render_tile_rows, "render_tile_rows")
     render_tile_cols = as_positive_int(render_tile_cols, "render_tile_cols")
@@ -464,7 +487,24 @@ def compose_reconstruction_compare_video(
     output_video = Path(output_video)
     output_video.parent.mkdir(parents=True, exist_ok=True)
 
-    scene_renderer = GaussianSceneRenderer(scene_path, near_plane=near_plane, far_plane=far_plane)
+    scene_renderer = GaussianSceneRenderer(
+        scene_path,
+        near_plane=near_plane,
+        far_plane=far_plane,
+        ego_trajectory=trajectory_path,
+        insert_vehicle_id=insert_static_vehicle_id,
+        insert_vehicle_s=insert_static_vehicle_s,
+        realcar_path=realcar_path,
+        insert_vehicle_height=insert_static_vehicle_height,
+    )
+    if insert_static_vehicle_id is not None:
+        logged_s = insert_static_vehicle_s
+        if logged_s is None:
+            logged_s = frames[-1]["mileage"]
+        print(
+            "Inserted static non-native vehicle "
+            f"{insert_static_vehicle_id} at s={float(logged_s):.3f}"
+        )
     renderer = TiledCameraRenderer(scene_renderer)
     original_reader = imageio.get_reader(original_video)
     writer = imageio.get_writer(
@@ -561,6 +601,10 @@ def main():
         Path(args.real_camera_distortion_parameters).resolve()
         if args.real_camera_distortion_parameters is not None
         else None,
+        args.insert_static_vehicle_id,
+        args.insert_static_vehicle_s,
+        Path(args.realcar_path).resolve() if args.realcar_path else None,
+        args.insert_static_vehicle_height,
     )
 
 
