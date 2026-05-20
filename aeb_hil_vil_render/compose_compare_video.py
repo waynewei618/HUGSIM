@@ -20,10 +20,12 @@ from aeb_hil_vil_render.gaussian_scene_renderer import (
     as_positive_int,
     as_transform,
 )
+from aeb_hil_vil_render.lut_distortion import LookupTableDistorter
 
 
 REAL_VEHICLE_FRONT_CAMERA_ID = "front_120/cam1"
 REAL_VEHICLE_FRONT_CAMERA_INTRINSICS = Path(__file__).with_name("camera_intrinsics.json")
+DEFAULT_FRONT_120_DISTORTION_PARAMETERS = Path(__file__).with_name("vtd_front_120") / "front_120_parameters.json"
 
 
 def parse_args():
@@ -54,6 +56,18 @@ def parse_args():
         help="Optional CSV path for per-frame real vehicle camera render timing.",
     )
     parser.add_argument(
+        "--real-camera-distortion-parameters",
+        help=(
+            "Optional distortion parameter JSON or direct VTD lookup-table path. "
+            "When omitted, front_120/cam1 uses aeb_hil_vil_render/vtd_front_120/front_120_parameters.json."
+        ),
+    )
+    parser.add_argument(
+        "--disable-real-camera-distortion",
+        action="store_true",
+        help="Render the real vehicle camera as the raw pinhole image without lookup-table distortion.",
+    )
+    parser.add_argument(
         "--render-tile-rows",
         "--tile-rows",
         dest="render_tile_rows",
@@ -75,6 +89,19 @@ def parse_args():
 def load_json(path):
     with Path(path).open("r") as f:
         return json.load(f)
+
+
+def lookup_table_path_from_distortion_parameters(path):
+    path = Path(path)
+    if path.suffix.lower() == ".dat":
+        return path
+
+    parameters = load_json(path)
+    local_files = parameters.get("local_files", {})
+    lookup_table = local_files.get("lookup_table")
+    if lookup_table is None:
+        raise ValueError(f"{path} must contain local_files.lookup_table or be a .dat lookup table")
+    return path.parent / lookup_table
 
 
 def required(data, name, source):
@@ -424,6 +451,8 @@ def compose_reconstruction_compare_video(
     real_camera_timing_output=None,
     render_tile_rows=1,
     render_tile_cols=1,
+    real_camera_distortion=True,
+    real_camera_distortion_parameters=None,
 ):
     render_tile_rows = as_positive_int(render_tile_rows, "render_tile_rows")
     render_tile_cols = as_positive_int(render_tile_cols, "render_tile_cols")
@@ -483,12 +512,25 @@ def compose_reconstruction_compare_video(
         real_fps = infer_fps(trajectory, real_camera, frames)
         renderer.reset_temporal_state()
         timing_records = []
+        postprocess = None
+        real_camera_desc = f"Rendering real vehicle pinhole camera {real_camera_id}"
+        if real_camera_distortion:
+            distortion_parameters = real_camera_distortion_parameters
+            if distortion_parameters is None and real_camera_id == REAL_VEHICLE_FRONT_CAMERA_ID:
+                distortion_parameters = DEFAULT_FRONT_120_DISTORTION_PARAMETERS
+            if distortion_parameters is not None:
+                lookup_table_path = lookup_table_path_from_distortion_parameters(distortion_parameters)
+                print(f"Loading VTD lookup-table distortion from {lookup_table_path}")
+                postprocess = LookupTableDistorter(lookup_table_path)
+                real_camera_desc = f"Rendering real vehicle VTD-distorted camera {real_camera_id}"
+
         write_rendered_camera_video(
             renderer,
             real_camera_inputs,
             real_fps,
             real_camera_output,
-            f"Rendering real vehicle pinhole camera {real_camera_id}",
+            real_camera_desc,
+            postprocess=postprocess,
             timing_records=timing_records,
             near_plane=real_near_plane,
             far_plane=real_far_plane,
@@ -518,6 +560,10 @@ def main():
         Path(args.real_camera_timing_output).resolve() if args.real_camera_timing_output else None,
         args.render_tile_rows,
         args.render_tile_cols,
+        not args.disable_real_camera_distortion,
+        Path(args.real_camera_distortion_parameters).resolve()
+        if args.real_camera_distortion_parameters is not None
+        else None,
     )
 
 

@@ -49,7 +49,7 @@ outputs/aeb_hil_vil_render/<dataset>/<scene>/aeb_trajectory_plots.png
 
 其中 `aeb_front_compare.mp4` 左侧为原采集图片合成视频，右侧为 3DGS 渲染视频，用于快速观察重建效果。
 `aeb_real_front_120_rendered.mp4` 使用 `camera_intrinsics.json` 中 `camera_id` 为 `front_120/cam1` 的实车 AEB 前视相机内参渲染，外参沿用 `aeb_camera.json` 中的 `camera_to_ego`。
-对 `front_120/cam1` 这类超广角相机，当前程序只读取 VTD 配置中的 `near/far`，然后按该相机的 pinhole 内参直接渲染；不再自动分块、不做 ray projection，也不使用 `postprocess_lookup_tables` 做查表畸变映射。
+对默认实车相机 `front_120/cam1`，程序先按 VTD Display XML 的畸变前 pinhole 内参渲染，再使用 `aeb_hil_vil_render/vtd_front_120/front_120_parameters.json` 指向的 `front.dat` 做查表畸变，输出与 VTD 最终 `front_120` 更一致的图像。
 `aeb_real_front_120_rendered.timing.csv` 由调用脚本记录实车相机每帧耗时，包括 `render_camera()` 调用耗时、可选后处理耗时和二者合计；核心渲染类内部不维护 timing 状态。
 `aeb_trajectory_plots.png` 将里程-高度和水平面 x-y 轨迹绘制在同一张图中；当前 HUGSIM 场景坐标里高度使用 scene `y`，水平面 x-y 使用 `(scene z, -scene x)`。
 
@@ -193,8 +193,11 @@ pixi run python aeb_hil_vil_render/compose_compare_video.py \
 ```bash
 --real-camera-id front_120/cam1 \
 --real-camera-intrinsics /workspace/HUGSIM/aeb_hil_vil_render/camera_intrinsics.json \
+--real-camera-distortion-parameters /workspace/HUGSIM/aeb_hil_vil_render/vtd_front_120/front_120_parameters.json \
 --real-camera-timing-output /workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166/custom_timing.csv
 ```
+
+`--real-camera-distortion-parameters` 可以传本项目保存的参数 JSON，也可以直接传 VTD `.dat` 查表文件。需要观察畸变前 pinhole 中间结果时，传 `--disable-real-camera-distortion`。
 
 输出：
 

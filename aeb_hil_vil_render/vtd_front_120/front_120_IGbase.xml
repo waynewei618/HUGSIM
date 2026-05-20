@@ -1,0 +1,148 @@
+<IGconfig>
+
+  <Includes>
+    <Include file="IGLinks/Setup/../Common/Config/ImageGenerator/CommonIGConfig.xml" isOptional="0"/>
+  </Includes>
+
+
+  <SystemConfig>
+    <EnvVariable value="1" var="__GL_SYNC_TO_VBLANK" />
+    <FilePath path="IGLinks/Setup/ImageGenerator" />
+  </SystemConfig>
+
+  <Plugins>
+  </Plugins>
+
+  <Components>
+    <RDBInterface name="MyRDBInterface" printDebugInfo="0" ignoreShmFlags="0">
+        <ShmLayoutImage key="0x0811a" freeFlag="0x00000000" releaseFlag="0x00000002"/>
+    </RDBInterface>
+
+    <PostProcessing name="MyPostProcessing"  />
+
+    <PostProcessingPipelineConfigurator name="yuv420p" >
+      <Pipeline hideSceneFromDefaultView="1" viewName="cam1">
+        <Step type="PPSTextureRect" name="OriginalScene" generateDepthTexture="1" depthTextureFormat="GL_DEPTH_COMPONENT24">
+            <Inputs>
+              <NodeInput inputNo="0" type="scene"/>
+            </Inputs>
+            <RTT  sizeMode="viewport"  bufferFormat="GL_RGB8" />
+            <SAQ lowerLeftX="0" lowerLeftY="0" width="1" height="1" isForDebug="0" enableSRGB="0" />
+        </Step>
+        <Step type="PPSTextureRect" name="HaloBloomGlare" >
+            <Inputs>
+                <TextureInput inputNo="0" sourceStep="OriginalScene" outputSlot="color"/>
+                <TextureInput inputNo="1" sourceStep="OriginalScene" outputSlot="depth"/>
+                <TextureInput inputNo="2" textureType="TextureRectangle" sourceImage="random.png" />
+            </Inputs>
+            <RTT  sizeMode="viewport"  bufferFormat="GL_RGB8" />
+            <Program vertexShader="PP_AllLightGlare.vert" fragmentShader="PP_AllLightGlare.frag" define="#define LENSFLARE_ENABLED">
+                <Uniform type="sampler2D" name="u_originalScene" value="0" />
+                <Uniform type="sampler2D" name="u_depthTexture" value="1" />
+                <Uniform type="sampler2D" name="u_randomTexture" value="2" />
+                <!-- u_lightWeights: Initial Size | Attenuation (distance) | direction (to camera) | light distance occlusion offset [m] -->
+                <!-- light distance occlusion offset [m] :
+                    We test occlusion against the depth buffer, since the light is
+                    inside its light geometry, we need to apply an offset to occlusion -->
+                <Uniform type="vec4"  name="u_lightWeights" value="2.0 1.0 1.5 0.2"/>
+                <Uniform type="ViewInformation" name="u_camera" />
+                <Uniform type="RTTDimensions" name="u_viewPort" />
+                <Uniform type="Environment" />
+                <Uniform type="Lights" />
+            </Program>
+            <SAQ lowerLeftX="0" lowerLeftY="0" width="1" height="1" isForDebug="0" enableSRGB="0" />
+        </Step>
+        <Step type="PPSTextureRect" name="Distortion" >
+            <Inputs>
+                <TextureInput inputNo="0" sourceStep="HaloBloomGlare" />
+                <TextureInput inputNo="1" sourceLookupTable="./dat/front.dat" />
+                <TextureInput inputNo="2" textureType="TextureRectangle"  sourceImage="lensImage.rgb" />
+            </Inputs>
+            <RTT  sizeMode="viewport"  bufferFormat="GL_RGB8" />
+            <Program vertexShader="./Shaders/PinholeDistortVert.glsl" fragmentShader="./Shaders/PinholeDistortFrag.glsl" >
+                <Uniform type="sampler2D" name="u_originalScene" value="0" />
+                <Uniform type="sampler2D" name="u_lookupTex" value="1"/>
+                <Uniform type="sampler2D" name="u_edgeBlendTex" value="2"/>
+            </Program>
+            <SAQ lowerLeftX="0" lowerLeftY="0" width="1" height="1" isForDebug="0" enableSRGB="0" />
+        </Step>
+        <Step type="PPSTextureRect" name="YUV" >
+            <Inputs>
+                <TextureInput inputNo="0" sourceStep="Distortion" />aebdsp
+            </Inputs>
+            <RTT sizeMode="explicit" width="3840" height="2160" bufferFormat="GL_RGB8" />
+            <Program vertexShader="./Shaders/rgb2yuv.vert" fragmentShader="./Shaders/rgb2yuv.frag">
+                <Uniform type="sampler2D" name="u_originalScene" value="0"/>
+            </Program>
+            <SAQ lowerLeftX="0" lowerLeftY="0" width="1" height="1" isForDebug="0" enableSRGB="0" />
+        </Step>
+        <Step type="PPSTextureRect" name="YUV420p" >
+            <Inputs>
+                <TextureInput inputNo="0" sourceStep="YUV" />
+            </Inputs>
+            <RTT sizeMode="explicit" width="1280" height="3240" bufferFormat="GL_RGB8" />
+            <Program vertexShader="./Shaders/yuv420p.vert" fragmentShader="./Shaders/yuv420p.frag">
+                <Uniform type="sampler2D" name="yuvScene" value="0"/>
+            </Program>
+            <SAQ lowerLeftX="0" lowerLeftY="0" width="1" height="1" isForDebug="0" enableSRGB="0" />
+            <!-- <Readback readbackThreadAffinity="4" >
+                <Image outputSlot="color"/>
+            </Readback> -->
+        </Step>
+        <Step type="PPSTextureRect" name="Flip420p" >
+            <Inputs>
+                <TextureInput inputNo="0" sourceStep="YUV420p"/>
+            </Inputs>
+            <RTT sizeMode="explicit" width="1280" height="3240" bufferFormat="GL_RGB8" />
+            <Program vertexShader="./Shaders/flip420p.vert" fragmentShader="./Shaders/flip420p.frag">
+                <Uniform type="sampler2D" name="sceneColor" value="0" />
+            </Program>
+            <SAQ lowerLeftX="0" lowerLeftY="0" width="1" height="1"  isForDebug="1" enableSRGB="0" />
+            <Readback readbackThreadAffinity="4" >
+                <Image outputSlot="color"/>
+            </Readback>
+        </Step>
+      </Pipeline>
+    </PostProcessingPipelineConfigurator>
+
+
+    <TAKATA name="TAKATA"
+            timeScale="1.0"
+            constantDeltaTime="0.0166666666666666"
+            useConstantDeltaTime="1"
+            ownshipSteeringDebug="0"
+            movingModelSteeringDebug="0"
+            movingModelManagementDebug="0"
+            environmentDebug="0"
+            carsInitDebug="0"
+            ignoreEnvMsg="0"
+            commandDebug="1"
+            contactPointQueryDebug="0"
+            headlightsAlwaysOn="0"
+            lightDebug="0"
+            pkgVecDebug="0"
+            printSimTime="0"
+            printFrameNo="0"
+            rainEffectScale="800"
+            enableRealTimeShadows="1"
+            ignoreSetProjectionMessages="1"
+            hudTextPos= "0.70 0.08" hudCharHeight= "30.0" hudTextShadowOffset= "0.002 -0.002" enableCross="0"
+            taskControlServerAddress="127.0.0.1"
+            taskControlServerPort="13112"
+            connectTaskServerTCP="1"
+            imageTransferServerAddress="127.0.0.1"
+            imageTransferServerPort="13110"
+            connectImageTransferTCP="0"
+            enableShmReader="0"
+            materialDB="HighContrastSky"
+            convertLightmapThreadCPUAffinity="-1"
+            trigger="TCP">
+
+      <MovingModelDefinitions>
+	<MovingModel type="12345" template="DummyPersonMo"  ShadowDBEntityID="" component="Car" userData="0.4" />
+      </MovingModelDefinitions>
+
+    </TAKATA>
+
+  </Components>
+</IGconfig>
