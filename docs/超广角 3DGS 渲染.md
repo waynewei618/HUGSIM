@@ -16,7 +16,7 @@
 
 ### 1.2 渲染速度
 
-当前统计来自已经重跑的 VTD 等效 `front_120/cam1` 输出，分辨率均为 `3840 x 2160`。这里把 `total_ms` 作为端到端统计口径，包含 `GaussianSceneRenderer.render_camera()` 的 3DGS 渲染耗时和 `front.dat` LUT 畸变后处理耗时。
+当前统计来自已经重跑的 VTD 等效 `front_120/cam1` 输出，分辨率均为 `3840 x 2160`。这里把 `total_ms` 作为端到端统计口径，包含 `TiledCameraRenderer.render_camera()` 的 3DGS 渲染耗时和 `front.dat` LUT 畸变后处理耗时。
 
 | 场景 | 帧数 | `total_ms` 平均 | 最小/最大 | `render_camera_ms` 平均 | `postprocess_ms` 平均 | 对应帧率 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -480,14 +480,14 @@ aeb_hil_vil_render/vtd_front_120/front_120_parameters.json
 
 当前工程基线是 `2 x 2` 分块局部相机渲染，加 `64` 像素 guard band、feather blending、单 GPU tile batch 并行渲染和 GPU 合成。对默认实车相机 `front_120/cam1`，渲染出的 `3840 x 2160`、133° pinhole 中间图还会继续经过 VTD `front.dat` LUT 后处理，输出与 VTD 最终 `front_120` 一致的畸变图像。
 
-核心入口仍然是 `GaussianSceneRenderer.render_camera()`。默认参数为：
+超广角分块入口是 `TiledCameraRenderer.render_camera()`。默认参数为：
 
 ```text
 tile_rows = 1
 tile_cols = 1
 ```
 
-默认值表示不分块，保持原始整图渲染路径。需要启用当前 `2 x 2` 基线时，在 `compose_compare_video.py` 命令行中传：
+默认值表示不分块，此时内部转调 `GaussianSceneRenderer.render_camera()` 的原始整图渲染路径。需要启用当前 `2 x 2` 基线时，在 `compose_compare_video.py` 命令行中传：
 
 ```bash
 --render-tile-rows 2 \

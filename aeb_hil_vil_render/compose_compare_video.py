@@ -14,13 +14,10 @@ from tqdm import tqdm
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(REPO_ROOT))
 
-from aeb_hil_vil_render.gaussian_scene_renderer import (
-    GaussianSceneRenderer,
-    as_camera_intrinsics,
-    as_positive_int,
-    as_transform,
-)
+from aeb_hil_vil_render.camera_math import as_camera_intrinsics, as_positive_int, as_transform
+from aeb_hil_vil_render.gaussian_scene_renderer import GaussianSceneRenderer
 from aeb_hil_vil_render.lut_distortion import LookupTableDistorter
+from aeb_hil_vil_render.tiled_camera_renderer import TiledCameraRenderer
 
 
 REAL_VEHICLE_FRONT_CAMERA_ID = "front_120/cam1"
@@ -295,11 +292,10 @@ def build_camera_inputs(trajectory, camera):
     for index, frame in enumerate(frames):
         ego_to_world = ego_pose_from_frame(frame, index, trajectory)
         camera_to_world = ego_to_world @ camera_to_ego
-        world_to_camera = np.linalg.inv(camera_to_world).astype(np.float32)
         camera_inputs.append(
             {
                 "intrinsics": intrinsics,
-                "world_to_camera": world_to_camera,
+                "camera_to_world": camera_to_world.astype(np.float32),
                 "width": width,
                 "height": height,
                 "timestamp": frame_timestamp(frame, index),
@@ -385,8 +381,8 @@ def write_rendered_camera_video(
     desc,
     postprocess=None,
     timing_records=None,
-    near_plane=None,
-    far_plane=None,
+    near_plane=0.01,
+    far_plane=500,
     render_tile_rows=1,
     render_tile_cols=1,
 ):
@@ -468,7 +464,8 @@ def compose_reconstruction_compare_video(
     output_video = Path(output_video)
     output_video.parent.mkdir(parents=True, exist_ok=True)
 
-    renderer = GaussianSceneRenderer(scene_path, near_plane=near_plane, far_plane=far_plane)
+    scene_renderer = GaussianSceneRenderer(scene_path, near_plane=near_plane, far_plane=far_plane)
+    renderer = TiledCameraRenderer(scene_renderer)
     original_reader = imageio.get_reader(original_video)
     writer = imageio.get_writer(
         output_video,

@@ -10,11 +10,12 @@
 
 ## 程序拆分
 
-当前目录保留四个单一职责程序：
+当前目录保留以下单一职责程序和模块：
 
 - `reconstruction_compare.sh`：一键生成重建效果观察用的原图/渲染左右对比视频。
 - `extract_scene_inputs.py`：从训练场景中提取示例渲染输入。
-- `gaussian_scene_renderer.py`：核心 3DGS 场景渲染类，加载场景权重和渲染默认参数后，根据传入的相机内参、`world_to_camera` 外参、输出分辨率和时间戳返回图像。
+- `gaussian_scene_renderer.py`：核心 3DGS 场景渲染类，加载场景权重和渲染默认参数后，根据传入的相机内参、`camera_to_world` 外参、输出分辨率和时间戳返回图像。
+- `tiled_camera_renderer.py`：超广角分块渲染策略，负责局部相机切分、GPU 重投影和 guard band 羽化融合。
 - `compose_compare_video.py`：根据自车轨迹和相机标定逐帧调用核心渲染类，并将原采集视频与渲染图像左右合成。
 
 ## 一键观察重建效果
@@ -87,14 +88,14 @@ from aeb_hil_vil_render.gaussian_scene_renderer import GaussianSceneRenderer
 renderer = GaussianSceneRenderer("/workspace/HUGSIM/outputs/waymo/1680166")
 image = renderer.render_camera(
     intrinsics=intrinsics,
-    world_to_camera=world_to_camera,
+    camera_to_world=camera_to_world,
     width=960,
     height=640,
     timestamp=0.0,
 )
 ```
 
-其中 `image` 是 `uint8` RGB 图像。`GaussianSceneRenderer.__init__` 只加载一次 `cfg.yaml`、`scene.pth`、`dynamic_*.pth`、训练时的背景设置和渲染默认参数；`near/far` 默认沿用上游训练渲染函数的 `0.01/500.0`，调用者需要时可显式覆盖。`render_camera()` 直接接收构造底层 `scene.cameras.Camera` 所需的相机输入，外参输入约定固定为 `world_to_camera`，底层 HUGSIM 需要的 `camera_to_world` 只在渲染器内部由 `world_to_camera` 求逆得到。核心渲染类只负责渲染一张图，不维护耗时统计、不保存图片/视频、不做调用侧后处理。
+其中 `image` 是 `uint8` RGB 图像。`GaussianSceneRenderer.__init__` 只加载一次 `cfg.yaml`、`scene.pth`、`dynamic_*.pth`、训练时的背景设置和渲染默认参数；`near/far` 默认沿用上游训练渲染函数的 `0.01/500.0`，调用者需要时可显式覆盖。`render_camera()` 直接接收构造底层 `scene.cameras.Camera` 所需的相机输入，外参输入约定固定为 `camera_to_world`。核心渲染类只负责渲染一张图，不维护耗时统计、不保存图片/视频、不做调用侧后处理，也不负责超广角分块合成。
 
 ## 3. AEB 轨迹和相机标定
 
@@ -156,10 +157,9 @@ image = renderer.render_camera(
 
 ```text
 camera_to_world = ego_to_world @ camera_to_ego
-world_to_camera = inverse(camera_to_world)
 ```
 
-然后把每帧的 `intrinsics`、`world_to_camera`、`width`、`height`、`timestamp` 直接传给 `GaussianSceneRenderer.render_camera()`。
+然后把每帧的 `intrinsics`、`camera_to_world`、`width`、`height`、`timestamp` 传给渲染入口。`compose_compare_video.py` 默认用 `TiledCameraRenderer` 包装 `GaussianSceneRenderer`，`--render-tile-rows 1 --render-tile-cols 1` 时会转调核心整图渲染路径。
 
 ## 4. 合成对比视频
 
@@ -175,7 +175,7 @@ pixi run python aeb_hil_vil_render/compose_compare_video.py \
   --real-camera-output /workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166/aeb_real_front_120_rendered.mp4
 ```
 
-默认 `render_camera()` 不分块渲染，即 `--render-tile-rows 1 --render-tile-cols 1`。当前超广角前视渲染基线使用 `4x4` 分块和 guard band 羽化融合：
+默认不分块渲染，即 `--render-tile-rows 1 --render-tile-cols 1`。当前超广角前视渲染基线使用 `4x4` 分块和 guard band 羽化融合：
 
 ```bash
 --render-tile-rows 4 \
