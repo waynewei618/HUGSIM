@@ -12,7 +12,7 @@ TRAJECTORY_NAME = "aeb_trajectory.json"
 CAMERA_NAME = "aeb_camera.json"
 ORIGINAL_VIDEO_NAME = "aeb_front_original.mp4"
 TRAJECTORY_PLOT_NAME = "aeb_trajectory_plots.png"
-FRONT_CAMERA_DIRS = ("cam_1", "CAM_FRONT", "front_camera")
+FRONT_CAMERA_DIRS = ("cam_1", "CAM_FRONT_120", "CAM_FRONT", "front_camera")
 HEIGHT_AXIS = 1
 
 
@@ -232,7 +232,20 @@ def relative_rgb_path(rgb_path):
 def resolve_rgb_path(scene_path, source_path, rgb_path):
     path = relative_rgb_path(rgb_path)
     if path.is_absolute():
-        return path if path.exists() else None
+        if path.exists():
+            return path
+        if source_path is not None and "images" in path.parts:
+            image_index = path.parts.index("images")
+            image_path = Path(*path.parts[image_index:])
+            candidates = [
+                source_path / image_path,
+                source_path / Path(*image_path.parts[1:]),
+                source_path / path.name,
+            ]
+            for candidate in candidates:
+                if candidate.exists():
+                    return candidate
+        return None
 
     candidates = [scene_path / path]
     if source_path is not None:
