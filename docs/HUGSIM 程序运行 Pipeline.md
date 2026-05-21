@@ -98,7 +98,7 @@ ${export_path}/vis/scene.splat
 
 ```bash
 CUDA_VISIBLE_DEVICES=${render_cuda} \
-bash aeb_hil_vil_render/reconstruction_compare.sh \
+bash render_3dgs/reconstruction_compare.sh \
   ${export_path} \
   ${source_path}
 ```
@@ -115,7 +115,7 @@ meta_data.json
 脚本输出统一写入：
 
 ```text
-outputs/aeb_hil_vil_render/<dataset>/<scene>/
+outputs/render_3dgs/<dataset>/<scene>/
 ```
 
 主要输出包括：

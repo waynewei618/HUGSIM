@@ -319,7 +319,7 @@ VTD:
 当前 `compose_compare_video.py` 的默认实车 `front_120/cam1` 输出已经在渲染后调用通用 LUT 畸变模块，对 3DGS 渲染出的 133° pinhole 图做同样的 remap。畸变资源由调用方参数提供，默认使用：
 
 ```text
-aeb_hil_vil_render/vtd_front_120/front_120_parameters.json
+render_3dgs/vtd_front_120/front_120_parameters.json
 ```
 
 如果要观察畸变前中间结果，可在调用时传 `--disable-real-camera-distortion`。

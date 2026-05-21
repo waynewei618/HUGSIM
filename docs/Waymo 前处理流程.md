@@ -122,4 +122,4 @@ export WAYMO_OUT=<output_dir>
 
 ## 后续训练
 
-前处理完成后，ground/full 重建训练命令、暂停恢复方式、checkpoint 和本次 `1680166` 指标见 `docs/reconstruction_training.md`。
+前处理完成后，ground/full 重建训练命令、暂停恢复方式、checkpoint 和本次 `1680166` 指标见 `docs/HUGSIM 重建训练记录.md`。

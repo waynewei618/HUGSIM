@@ -31,7 +31,7 @@
 - `docs/` 下的文档名即文档主题；内容应围绕该主题展开，不要混入其他主题的通用说明。
 - 说明性文档默认贴近用户当前写作风格：直入主题、少铺垫；先写现象、数据和结论，再写原因分析；保留必要表格和示例，不追加未验证的方案占位；公式统一使用 LaTeX 行内公式 `$...$` 或块级公式 `$$...$$`，不要用普通 text 代码块表达数学公式。
 - 数据集流程文档（如 Waymo、NuScenes 等）只记录该数据集的输入、运行命令、流程步骤、输出结构和该流程直接读取的路径/变量。
-- 环境配置、依赖版本、CUDA/PyTorch/xFormers 适配、pixi 安装、通用模型权重管理等内容应写入 `docs/pixi_environment_setup.md`，不要散落到具体数据集流程文档。
+- 环境配置、依赖版本、CUDA/PyTorch/xFormers 适配、pixi 安装、通用模型权重管理等内容应写入 `docs/HUGSIM Pixi 环境配置记录.md`，不要散落到具体数据集流程文档。
 - 规则性约定和长期偏好应写入 `AGENTS.md`，不要写进具体流程文档作为临时 FAQ。
 - 编写 Markdown 文档时，环境配置与运行命令默认假设读者已进入 Docker 容器，直接写在容器内执行的命令，不加 `docker exec ubuntu_dev bash -c "..."` 外层包装。
 - 文档中路径使用 Docker 容器内路径（如 `/workspace/HUGSIM`、`/workspace/data/...`）。
@@ -53,9 +53,9 @@
 ## 阶段目标：AEB HIL/VIL 前视渲染
 
 - 当前阶段目标是基于离线仿真准备阶段输出的结果，提供自车世界位姿、实际相机内参、实际相机相对于自车的安装外参和分辨率，渲染得到前视视频，用于 AEB 测试的 HIL/VIL 实际项目。
-- 该阶段相关代码集中放在 `aeb_hil_vil_render/`，不要继续散落到通用训练、数据预处理或评测脚本目录中。
+- 该阶段相关代码集中放在 `render_3dgs/`，不要继续散落到通用训练、数据预处理或评测脚本目录中。
 - 实际项目开发的程序应功能明确单一，命令输入保持简单；核心渲染模块 `gaussian_scene_renderer.py` 只负责加载 3DGS 场景权重，并根据相机内参、`camera_to_world` 外参和分辨率返回一张图像。
 - `trajectory.json` 只放自车位姿轨迹的最少信息，核心字段为每帧 `ego_position`、自车旋转和从 0 开始累计的 `mileage`；自车旋转可用 `ego_quaternion_wxyz`、`ego_quaternion_xyzw` 或 `ego_rpy` 表达，实际项目不能只给 3D 位置。`camera.json` 放实际相机标定信息，核心字段为 `intrinsics`、`camera_to_ego`、`width`、`height` 和必要的 `fps`。
 - 训练场景示例信息提取放在 `extract_scene_inputs.py`，按自车轨迹逐帧调用核心渲染类并与原采集视频合成对比放在 `compose_compare_video.py`，不要混入核心 3DGS 渲染模块。
 - 相机内外参必须来自实际相机标定，不要在实际项目代码中用默认相机参数、虚构外参或仅 3D 位置替代完整相机外参；从训练场景提取的示例 `camera_to_ego` 只能用于复现示例，实际项目必须替换为真实安装外参。
-- 重建效果观察生成的 `aeb_*.json`、`aeb_*.mp4` 和轨迹观察图片不要写回训练场景目录，默认集中放到 `outputs/aeb_hil_vil_render/<dataset>/<scene>/`。轨迹观察图片固定为 `aeb_trajectory_plots.png`，左侧里程-高度，右侧水平面 x-y；当前 HUGSIM 场景坐标中高度使用 scene `y`，水平面 x-y 使用 `(scene z, -scene x)`。
+- 重建效果观察生成的 `aeb_*.json`、`aeb_*.mp4` 和轨迹观察图片不要写回训练场景目录，默认集中放到 `outputs/render_3dgs/<dataset>/<scene>/`。轨迹观察图片固定为 `aeb_trajectory_plots.png`，左侧里程-高度，右侧水平面 x-y；当前 HUGSIM 场景坐标中高度使用 scene `y`，水平面 x-y 使用 `(scene z, -scene x)`。

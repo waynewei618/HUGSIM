@@ -14,10 +14,10 @@ from tqdm import tqdm
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(REPO_ROOT))
 
-from aeb_hil_vil_render.camera_math import as_camera_intrinsics, as_positive_int, as_transform
-from aeb_hil_vil_render.gaussian_scene_renderer import GaussianSceneRenderer
-from aeb_hil_vil_render.lut_distortion import LookupTableDistorter
-from aeb_hil_vil_render.tiled_camera_renderer import TiledCameraRenderer
+from render_3dgs.camera_math import as_camera_intrinsics, as_positive_int, as_transform
+from render_3dgs.gaussian_scene_renderer import GaussianSceneRenderer
+from render_3dgs.lut_distortion import LookupTableDistorter
+from render_3dgs.tiled_camera_renderer import TiledCameraRenderer
 
 
 REAL_VEHICLE_FRONT_CAMERA_ID = "front_120/cam1"
@@ -56,7 +56,7 @@ def parse_args():
         "--real-camera-distortion-parameters",
         help=(
             "Optional distortion parameter JSON or direct VTD lookup-table path. "
-            "When omitted, front_120/cam1 uses aeb_hil_vil_render/vtd_front_120/front_120_parameters.json."
+            "When omitted, front_120/cam1 uses render_3dgs/vtd_front_120/front_120_parameters.json."
         ),
     )
     parser.add_argument(

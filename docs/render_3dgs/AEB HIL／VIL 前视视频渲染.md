@@ -1,11 +1,11 @@
-# AEB HIL/VIL 前视视频渲染
+# AEB HIL／VIL 前视视频渲染
 
 本文档记录当前阶段的实际项目入口：基于自车世界位姿轨迹和实际前视相机标定，从导出的 HUGSIM 3DGS 场景渲染前视视频，并可与原采集视频合成对比。
 
 相关代码集中在：
 
 ```text
-/workspace/HUGSIM/aeb_hil_vil_render/
+/workspace/HUGSIM/render_3dgs/
 ```
 
 ## 程序拆分
@@ -23,7 +23,7 @@
 输入为包含 `meta_data.json`、`cfg.yaml`、`scene.pth` 的场景路径和原始图片所在路径：
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 bash aeb_hil_vil_render/reconstruction_compare.sh \
+CUDA_VISIBLE_DEVICES=0 bash render_3dgs/reconstruction_compare.sh \
   /workspace/HUGSIM/outputs/nusc/scene-0038 \
   /workspace/data/HUGSIM/nusc/scene-0038
 ```
@@ -39,18 +39,18 @@ CUDA_VISIBLE_DEVICES=0 bash aeb_hil_vil_render/reconstruction_compare.sh \
 脚本会依次生成：
 
 ```text
-outputs/aeb_hil_vil_render/<dataset>/<scene>/aeb_trajectory.json
-outputs/aeb_hil_vil_render/<dataset>/<scene>/aeb_camera.json
-outputs/aeb_hil_vil_render/<dataset>/<scene>/aeb_front_original.mp4
-outputs/aeb_hil_vil_render/<dataset>/<scene>/aeb_front_compare.mp4
-outputs/aeb_hil_vil_render/<dataset>/<scene>/aeb_real_front_120_rendered.mp4
-outputs/aeb_hil_vil_render/<dataset>/<scene>/aeb_real_front_120_rendered.timing.csv
-outputs/aeb_hil_vil_render/<dataset>/<scene>/aeb_trajectory_plots.png
+outputs/render_3dgs/<dataset>/<scene>/aeb_trajectory.json
+outputs/render_3dgs/<dataset>/<scene>/aeb_camera.json
+outputs/render_3dgs/<dataset>/<scene>/aeb_front_original.mp4
+outputs/render_3dgs/<dataset>/<scene>/aeb_front_compare.mp4
+outputs/render_3dgs/<dataset>/<scene>/aeb_real_front_120_rendered.mp4
+outputs/render_3dgs/<dataset>/<scene>/aeb_real_front_120_rendered.timing.csv
+outputs/render_3dgs/<dataset>/<scene>/aeb_trajectory_plots.png
 ```
 
 其中 `aeb_front_compare.mp4` 左侧为原采集图片合成视频，右侧为 3DGS 渲染视频，用于快速观察重建效果。
 `aeb_real_front_120_rendered.mp4` 使用 `camera_intrinsics.json` 中 `camera_id` 为 `front_120/cam1` 的实车 AEB 前视相机内参渲染，外参沿用 `aeb_camera.json` 中的 `camera_to_ego`。
-对默认实车相机 `front_120/cam1`，程序先按 VTD Display XML 的畸变前 pinhole 内参渲染，再使用 `aeb_hil_vil_render/vtd_front_120/front_120_parameters.json` 指向的 `front.dat` 做查表畸变，输出与 VTD 最终 `front_120` 更一致的图像。
+对默认实车相机 `front_120/cam1`，程序先按 VTD Display XML 的畸变前 pinhole 内参渲染，再使用 `render_3dgs/vtd_front_120/front_120_parameters.json` 指向的 `front.dat` 做查表畸变，输出与 VTD 最终 `front_120` 更一致的图像。
 `aeb_real_front_120_rendered.timing.csv` 由调用脚本记录实车相机每帧耗时，包括 `render_camera()` 调用耗时、可选后处理耗时和二者合计；核心渲染类内部不维护 timing 状态。
 `aeb_trajectory_plots.png` 将里程-高度和水平面 x-y 轨迹绘制在同一张图中；当前 HUGSIM 场景坐标里高度使用 scene `y`，水平面 x-y 使用 `(scene z, -scene x)`。
 
@@ -59,19 +59,19 @@ outputs/aeb_hil_vil_render/<dataset>/<scene>/aeb_trajectory_plots.png
 命令只传训练完成后导出的场景目录：
 
 ```bash
-pixi run python aeb_hil_vil_render/extract_scene_inputs.py \
+pixi run python render_3dgs/extract_scene_inputs.py \
   /workspace/HUGSIM/outputs/waymo/1680166 \
   /workspace/HUGSIM/outputs/waymo/1680166 \
-  /workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166
+  /workspace/HUGSIM/outputs/render_3dgs/waymo/1680166
 ```
 
 输出写入第三个参数指定的目录：
 
 ```text
-/workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166/aeb_trajectory.json
-/workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166/aeb_camera.json
-/workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166/aeb_front_original.mp4
-/workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166/aeb_trajectory_plots.png
+/workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/aeb_trajectory.json
+/workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/aeb_camera.json
+/workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/aeb_front_original.mp4
+/workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/aeb_trajectory_plots.png
 ```
 
 提取脚本默认使用 `meta_data.json` 中的 `cam_1` 作为 Waymo 示例前视相机。如果导出场景目录没有原始图片，脚本会尝试读取 `cfg.yaml` 中的 `source_path`，再从源数据目录生成 `aeb_front_original.mp4`。
@@ -83,7 +83,7 @@ pixi run python aeb_hil_vil_render/extract_scene_inputs.py \
 `gaussian_scene_renderer.py` 不绑定前视相机，也不绑定 AEB 轨迹。它的核心接口是：
 
 ```python
-from aeb_hil_vil_render.gaussian_scene_renderer import GaussianSceneRenderer
+from render_3dgs.gaussian_scene_renderer import GaussianSceneRenderer
 
 renderer = GaussianSceneRenderer("/workspace/HUGSIM/outputs/waymo/1680166")
 image = renderer.render_camera(
@@ -168,13 +168,13 @@ camera_to_world = ego_to_world @ camera_to_ego
 将原采集视频放左侧，逐帧渲染图像放右侧：
 
 ```bash
-pixi run python aeb_hil_vil_render/compose_compare_video.py \
+pixi run python render_3dgs/compose_compare_video.py \
   /workspace/HUGSIM/outputs/waymo/1680166 \
-  /workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166/aeb_front_original.mp4 \
-  /workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166/aeb_trajectory.json \
-  /workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166/aeb_camera.json \
-  /workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166/aeb_front_compare.mp4 \
-  --real-camera-output /workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166/aeb_real_front_120_rendered.mp4
+  /workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/aeb_front_original.mp4 \
+  /workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/aeb_trajectory.json \
+  /workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/aeb_camera.json \
+  /workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/aeb_front_compare.mp4 \
+  --real-camera-output /workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/aeb_real_front_120_rendered.mp4
 ```
 
 默认不分块渲染，即 `--render-tile-rows 1 --render-tile-cols 1`。当前超广角前视渲染基线使用 `4x4` 分块和 guard band 羽化融合：
@@ -187,16 +187,16 @@ pixi run python aeb_hil_vil_render/compose_compare_video.py \
 实车相机渲染会默认写出同名 timing CSV：
 
 ```text
-/workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166/aeb_real_front_120_rendered.timing.csv
+/workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/aeb_real_front_120_rendered.timing.csv
 ```
 
-默认实车相机 ID 为 `front_120/cam1`，内参文件为 `aeb_hil_vil_render/camera_intrinsics.json`。如需切换，可传：
+默认实车相机 ID 为 `front_120/cam1`，内参文件为 `render_3dgs/camera_intrinsics.json`。如需切换，可传：
 
 ```bash
 --real-camera-id front_120/cam1 \
---real-camera-intrinsics /workspace/HUGSIM/aeb_hil_vil_render/camera_intrinsics.json \
---real-camera-distortion-parameters /workspace/HUGSIM/aeb_hil_vil_render/vtd_front_120/front_120_parameters.json \
---real-camera-timing-output /workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166/custom_timing.csv
+--real-camera-intrinsics /workspace/HUGSIM/render_3dgs/camera_intrinsics.json \
+--real-camera-distortion-parameters /workspace/HUGSIM/render_3dgs/vtd_front_120/front_120_parameters.json \
+--real-camera-timing-output /workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/custom_timing.csv
 ```
 
 `--real-camera-distortion-parameters` 可以传本项目保存的参数 JSON，也可以直接传 VTD `.dat` 查表文件。需要观察畸变前 pinhole 中间结果时，传 `--disable-real-camera-distortion`。
@@ -204,5 +204,5 @@ pixi run python aeb_hil_vil_render/compose_compare_video.py \
 输出：
 
 ```text
-/workspace/HUGSIM/outputs/aeb_hil_vil_render/waymo/1680166/aeb_front_compare.mp4
+/workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/aeb_front_compare.mp4
 ```

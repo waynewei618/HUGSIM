@@ -139,4 +139,4 @@ bash scripts/ann_generator.sh 12 --ann_strategy 'interp'
 
 ## 后续处理
 
-生成 `interp_12Hz_trainval` 后，使用 HUGSIM 主环境执行场景提取、语义分割、动态 mask、深度估计和点云融合。具体流程见 `docs/nuscenes_preprocessing.md`。
+生成 `interp_12Hz_trainval` 后，使用 HUGSIM 主环境执行场景提取、语义分割、动态 mask、深度估计和点云融合。具体流程见 `docs/NuScenes 前处理流程.md`。

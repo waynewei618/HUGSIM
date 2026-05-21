@@ -1,6 +1,6 @@
 # NuScenes 前处理流程
 
-本文记录 HUGSIM 中 NuScenes 场景在 train 之前的数据准备流程。12Hz 标注生成不在本文展开，见 `docs/nuscenes_12Hz_processing.md`。
+本文记录 HUGSIM 中 NuScenes 场景在 train 之前的数据准备流程。12Hz 标注生成不在本文展开，见 `docs/NuScenes 2Hz → 12Hz 标注帧率提升流程.md`。
 
 > **注意**：本文所有命令默认在 Docker 容器 `ubuntu_dev` 内执行，工作目录为 `/workspace/HUGSIM`。
 
@@ -39,7 +39,7 @@ scene-0038
 | InverseForm 语义分割 | `/workspace/HUGSIM/checkpoints/hrnet48_OCR_HMS_IF_checkpoint.pth` |
 | UniDepth 深度估计 | `/workspace/HUGSIM/checkpoints/unidepth-v2-vitl14` |
 
-权重目录管理和临时路径覆盖规则见 `docs/pixi_environment_setup.md`。
+权重目录管理和临时路径覆盖规则见 `docs/HUGSIM Pixi 环境配置记录.md`。
 
 ## 运行流程
 
@@ -127,7 +127,7 @@ python utils/estimate_depth.py \
     --model_path /workspace/HUGSIM/checkpoints/unidepth-v2-vitl14
 ```
 
-xFormers 配置、验证和临时回退方式见 `docs/pixi_environment_setup.md`。
+xFormers 配置、验证和临时回退方式见 `docs/HUGSIM Pixi 环境配置记录.md`。
 
 ### 6. 融合非地面点云
 
@@ -258,4 +258,4 @@ ground_param (180, 4, 4) 1.4972307012023558 180 [0, 1, 2]
 
 ## 后续训练
 
-前处理完成后，ground/full 重建训练命令、暂停恢复方式、checkpoint 和本次 `scene-0038` 指标见 `docs/reconstruction_training.md`。
+前处理完成后，ground/full 重建训练命令、暂停恢复方式、checkpoint 和本次 `scene-0038` 指标见 `docs/HUGSIM 重建训练记录.md`。

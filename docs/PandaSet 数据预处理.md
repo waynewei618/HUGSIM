@@ -19,7 +19,7 @@ print("pandaset import ok")
 PY
 ```
 
-如果不可导入，按 `docs/pixi_environment_setup.md` 中的 PandaSet devkit 说明先补依赖。
+如果不可导入，按 `docs/HUGSIM Pixi 环境配置记录.md` 中的 PandaSet devkit 说明先补依赖。
 
 ## 运行步骤
 

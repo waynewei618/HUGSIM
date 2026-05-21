@@ -1,6 +1,6 @@
 # LUT 查表畸变模块
 
-本文档专门记录 `aeb_hil_vil_render/lut_distortion.py`。该模块只负责读取 VTD distortion lookup table，并把已经渲染出的 pinhole 图像按 LUT 重映射为最终畸变图像。
+本文档专门记录 `render_3dgs/lut_distortion.py`。该模块只负责读取 VTD distortion lookup table，并把已经渲染出的 pinhole 图像按 LUT 重映射为最终畸变图像。
 
 在当前 AEB HIL/VIL 前视渲染流程中，它对应 VTD `front_120` 链路里的第二步：
 
@@ -105,7 +105,7 @@ image = postprocess(image)
 默认实车相机 `front_120/cam1` 使用：
 
 ```text
-/workspace/HUGSIM/aeb_hil_vil_render/vtd_front_120/front_120_parameters.json
+/workspace/HUGSIM/render_3dgs/vtd_front_120/front_120_parameters.json
 ```
 
 该 JSON 中的 `local_files.lookup_table` 指向同目录的 `front.dat`。`lut_distortion.py` 本身不解析这个 JSON；从参数 JSON 找到 `.dat` 路径的逻辑在 `compose_compare_video.py` 的 `lookup_table_path_from_distortion_parameters()` 中。
@@ -117,10 +117,10 @@ image = postprocess(image)
 ```python
 import imageio.v2 as imageio
 
-from aeb_hil_vil_render.lut_distortion import LookupTableDistorter
+from render_3dgs.lut_distortion import LookupTableDistorter
 
 distorter = LookupTableDistorter(
-    "/workspace/HUGSIM/aeb_hil_vil_render/vtd_front_120/front.dat"
+    "/workspace/HUGSIM/render_3dgs/vtd_front_120/front.dat"
 )
 
 image = imageio.imread("/workspace/tmp/front_120_pinhole.png")
@@ -131,14 +131,14 @@ imageio.imwrite("/workspace/tmp/front_120_distorted.png", distorted)
 在完整视频渲染流程中，通常不直接写 Python，而是给 `compose_compare_video.py` 传参数：
 
 ```bash
-pixi run python aeb_hil_vil_render/compose_compare_video.py \
+pixi run python render_3dgs/compose_compare_video.py \
   /workspace/HUGSIM/outputs/pandaset/003 \
-  /workspace/HUGSIM/outputs/aeb_hil_vil_render/pandaset/003/aeb_front_original.mp4 \
-  /workspace/HUGSIM/outputs/aeb_hil_vil_render/pandaset/003/aeb_trajectory.json \
-  /workspace/HUGSIM/outputs/aeb_hil_vil_render/pandaset/003/aeb_camera.json \
-  /workspace/HUGSIM/outputs/aeb_hil_vil_render/pandaset/003/aeb_front_compare.mp4 \
-  --real-camera-output /workspace/HUGSIM/outputs/aeb_hil_vil_render/pandaset/003/aeb_real_front_120_rendered.mp4 \
-  --real-camera-distortion-parameters /workspace/HUGSIM/aeb_hil_vil_render/vtd_front_120/front_120_parameters.json
+  /workspace/HUGSIM/outputs/render_3dgs/pandaset/003/aeb_front_original.mp4 \
+  /workspace/HUGSIM/outputs/render_3dgs/pandaset/003/aeb_trajectory.json \
+  /workspace/HUGSIM/outputs/render_3dgs/pandaset/003/aeb_camera.json \
+  /workspace/HUGSIM/outputs/render_3dgs/pandaset/003/aeb_front_compare.mp4 \
+  --real-camera-output /workspace/HUGSIM/outputs/render_3dgs/pandaset/003/aeb_real_front_120_rendered.mp4 \
+  --real-camera-distortion-parameters /workspace/HUGSIM/render_3dgs/vtd_front_120/front_120_parameters.json
 ```
 
 如果只想观察畸变前的 pinhole 中间图，可传：

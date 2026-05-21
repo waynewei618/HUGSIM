@@ -1,4 +1,4 @@
-"""AEB HIL/VIL rendering tools."""
+"""3DGS camera rendering tools."""
 
 from .gaussian_scene_renderer import GaussianSceneRenderer
 from .tiled_camera_renderer import TiledCameraRenderer

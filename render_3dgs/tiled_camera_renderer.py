@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from aeb_hil_vil_render.camera_math import (
+from render_3dgs.camera_math import (
     as_camera_intrinsics,
     as_positive_float,
     as_positive_int,

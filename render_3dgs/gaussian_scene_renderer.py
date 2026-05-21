@@ -7,14 +7,14 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from aeb_hil_vil_render.camera_math import (
+from render_3dgs.camera_math import (
     as_camera_intrinsics,
     as_positive_float,
     as_positive_int,
     as_transform,
     render_to_uint8,
 )
-from aeb_hil_vil_render.static_vehicle_insertion import (
+from render_3dgs.static_vehicle_insertion import (
     create_static_vehicle_insertion,
     ground_height,
     trajectory_pose_at_s,

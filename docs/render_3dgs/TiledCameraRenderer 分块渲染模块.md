@@ -1,6 +1,6 @@
 # TiledCameraRenderer 分块渲染模块
 
-本文档专门解析 `aeb_hil_vil_render/tiled_camera_renderer.py`。该模块负责把一个目标 pinhole 相机拆成多个局部小 FOV tile 相机渲染，再把这些局部渲染结果重投影回目标图像坐标并融合。
+本文档专门解析 `render_3dgs/tiled_camera_renderer.py`。该模块负责把一个目标 pinhole 相机拆成多个局部小 FOV tile 相机渲染，再把这些局部渲染结果重投影回目标图像坐标并融合。
 
 它解决的是 3DGS 在超广角 pinhole 边缘处容易出现的屏幕空间 splat 过度拉伸问题。最终输出仍按调用方传入的目标相机内参、`camera_to_world` 和分辨率定义；分块只改变中间 rasterization 的局部相机，不改变最终图像像素对应的目标相机光线。
 
@@ -332,7 +332,7 @@ self.scene_renderer.previous_camera = reference_viewpoint
 `compose_compare_video.py` 通过命令行参数把分块数量传给 `TiledCameraRenderer.render_camera()`：
 
 ```bash
-pixi run python aeb_hil_vil_render/compose_compare_video.py \
+pixi run python render_3dgs/compose_compare_video.py \
   <scene_export> \
   <aeb_front_original.mp4> \
   <aeb_trajectory.json> \
