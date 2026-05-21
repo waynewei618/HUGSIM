@@ -56,6 +56,6 @@
 - 该阶段相关代码集中放在 `render_3dgs/`，不要继续散落到通用训练、数据预处理或评测脚本目录中。
 - 实际项目开发的程序应功能明确单一，命令输入保持简单；核心渲染模块 `gaussian_scene_renderer.py` 只负责加载 3DGS 场景权重，并根据相机内参、`camera_to_world` 外参和分辨率返回一张图像。
 - `trajectory.json` 只放自车位姿轨迹的最少信息，核心字段为每帧 `ego_position`、自车旋转和从 0 开始累计的 `mileage`；自车旋转可用 `ego_quaternion_wxyz`、`ego_quaternion_xyzw` 或 `ego_rpy` 表达，实际项目不能只给 3D 位置。`camera.json` 放实际相机标定信息，核心字段为 `intrinsics`、`camera_to_ego`、`width`、`height` 和必要的 `fps`。
-- 训练场景示例信息提取放在 `extract_scene_inputs.py`，按自车轨迹逐帧调用核心渲染类并与原采集视频合成对比放在 `compose_compare_video.py`，不要混入核心 3DGS 渲染模块。
+- 训练场景示例信息提取放在 `render_3dgs/reconstruction_compare/extract_scene_inputs.py`，按自车轨迹逐帧调用核心渲染类并与原采集视频合成对比放在 `render_3dgs/reconstruction_compare/compose_compare_video.py`，不要混入核心 3DGS 渲染模块。
 - 相机内外参必须来自实际相机标定，不要在实际项目代码中用默认相机参数、虚构外参或仅 3D 位置替代完整相机外参；从训练场景提取的示例 `camera_to_ego` 只能用于复现示例，实际项目必须替换为真实安装外参。
 - 重建效果观察生成的 `aeb_*.json`、`aeb_*.mp4` 和轨迹观察图片不要写回训练场景目录，默认集中放到 `outputs/render_3dgs/<dataset>/<scene>/`。轨迹观察图片固定为 `aeb_trajectory_plots.png`，左侧里程-高度，右侧水平面 x-y；当前 HUGSIM 场景坐标中高度使用 scene `y`，水平面 x-y 使用 `(scene z, -scene x)`。

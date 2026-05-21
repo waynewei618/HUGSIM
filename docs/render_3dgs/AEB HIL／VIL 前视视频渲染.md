@@ -12,18 +12,20 @@
 
 当前目录保留以下单一职责程序和模块：
 
-- `reconstruction_compare.sh`：一键生成重建效果观察用的原图/渲染左右对比视频。
-- `extract_scene_inputs.py`：从训练场景中提取示例渲染输入。
-- `gaussian_scene_renderer.py`：核心 3DGS 场景渲染类，加载场景权重和渲染默认参数后，根据传入的相机内参、`camera_to_world` 外参、输出分辨率和时间戳返回图像。
-- `tiled_camera_renderer.py`：超广角分块渲染策略，负责局部相机切分、GPU 重投影和 guard band 羽化融合。
-- `compose_compare_video.py`：根据自车轨迹和相机标定逐帧调用核心渲染类，并将原采集视频与渲染图像左右合成。
+- `reconstruction_compare/reconstruction_compare.sh`：一键生成重建效果观察用的原图/渲染左右对比视频。
+- `reconstruction_compare/extract_scene_inputs.py`：从训练场景中提取示例渲染输入。
+- `gaussian_scene_renderer.py`：`render_3dgs` 对外统一渲染入口，根据 `tile_rows/tile_cols` 决定直接渲染整图或进入分块渲染。
+- `core/camera_view_render.py`：核心 3DGS 场景和相机视图渲染实现，负责一次性加载场景权重，并渲染一个或一批 `Camera` 视图。
+- `core/tiled_camera_renderer.py`：超广角分块渲染内部实现，负责局部相机切分、GPU 重投影和 guard band 羽化融合。
+- `data/`：默认实车相机内参和 VTD `front_120` 查表畸变资源。
+- `reconstruction_compare/compose_compare_video.py`：根据自车轨迹和相机标定逐帧调用核心渲染类，并将原采集视频与渲染图像左右合成。
 
 ## 一键观察重建效果
 
 输入为包含 `meta_data.json`、`cfg.yaml`、`scene.pth` 的场景路径和原始图片所在路径：
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 bash render_3dgs/reconstruction_compare.sh \
+CUDA_VISIBLE_DEVICES=0 bash render_3dgs/reconstruction_compare/reconstruction_compare.sh \
   /workspace/HUGSIM/outputs/nusc/scene-0038 \
   /workspace/data/HUGSIM/nusc/scene-0038
 ```
@@ -50,7 +52,7 @@ outputs/render_3dgs/<dataset>/<scene>/aeb_trajectory_plots.png
 
 其中 `aeb_front_compare.mp4` 左侧为原采集图片合成视频，右侧为 3DGS 渲染视频，用于快速观察重建效果。
 `aeb_real_front_120_rendered.mp4` 使用 `camera_intrinsics.json` 中 `camera_id` 为 `front_120/cam1` 的实车 AEB 前视相机内参渲染，外参沿用 `aeb_camera.json` 中的 `camera_to_ego`。
-对默认实车相机 `front_120/cam1`，程序先按 VTD Display XML 的畸变前 pinhole 内参渲染，再使用 `render_3dgs/vtd_front_120/front_120_parameters.json` 指向的 `front.dat` 做查表畸变，输出与 VTD 最终 `front_120` 更一致的图像。
+对默认实车相机 `front_120/cam1`，程序先按 VTD Display XML 的畸变前 pinhole 内参渲染，再使用 `render_3dgs/data/vtd_front_120/front_120_parameters.json` 指向的 `front.dat` 做查表畸变，输出与 VTD 最终 `front_120` 更一致的图像。
 `aeb_real_front_120_rendered.timing.csv` 由调用脚本记录实车相机每帧耗时，包括 `render_camera()` 调用耗时、可选后处理耗时和二者合计；核心渲染类内部不维护 timing 状态。
 `aeb_trajectory_plots.png` 将里程-高度和水平面 x-y 轨迹绘制在同一张图中；当前 HUGSIM 场景坐标里高度使用 scene `y`，水平面 x-y 使用 `(scene z, -scene x)`。
 
@@ -59,7 +61,7 @@ outputs/render_3dgs/<dataset>/<scene>/aeb_trajectory_plots.png
 命令只传训练完成后导出的场景目录：
 
 ```bash
-pixi run python render_3dgs/extract_scene_inputs.py \
+pixi run python render_3dgs/reconstruction_compare/extract_scene_inputs.py \
   /workspace/HUGSIM/outputs/waymo/1680166 \
   /workspace/HUGSIM/outputs/waymo/1680166 \
   /workspace/HUGSIM/outputs/render_3dgs/waymo/1680166
@@ -78,7 +80,7 @@ pixi run python render_3dgs/extract_scene_inputs.py \
 
 注意：训练场景通常只有前视相机的世界位姿，没有单独保存真实自车坐标系和相机安装外参。示例提取出的 `aeb_trajectory.json` 使用前视相机位姿作为自车位姿，`aeb_camera.json` 中 `camera_to_ego` 为单位矩阵。实际 AEB HIL/VIL 项目必须替换为真实自车位姿和真实相机标定。
 
-## 2. 核心 3DGS 图像渲染类
+## 2. 统一 3DGS 图像渲染入口
 
 `gaussian_scene_renderer.py` 不绑定前视相机，也不绑定 AEB 轨迹。它的核心接口是：
 
@@ -95,7 +97,9 @@ image = renderer.render_camera(
 )
 ```
 
-其中 `image` 是 `uint8` RGB 图像。`GaussianSceneRenderer.__init__` 只加载一次 `cfg.yaml`、`scene.pth`、`dynamic_*.pth`、训练时的背景设置和渲染默认参数；`near/far` 默认沿用上游训练渲染函数的 `0.01/500.0`，调用者需要时可显式覆盖。`render_camera()` 直接接收构造底层 `scene.cameras.Camera` 所需的相机输入，外参输入约定固定为 `camera_to_world`。核心渲染类只负责渲染一张图，不维护耗时统计、不保存图片/视频、不做调用侧后处理，也不负责超广角分块合成。
+其中 `image` 是 `uint8` RGB 图像。`GaussianSceneRenderer.__init__` 只创建一个 `CameraViewRender` 实例，由它加载一次 `cfg.yaml`、`scene.pth`、`dynamic_*.pth`、训练时的背景设置和渲染默认参数；`near/far` 默认沿用上游训练渲染函数的 `0.01/500.0`，调用者需要时可显式覆盖。`render_camera()` 直接接收构造底层 `scene.cameras.Camera` 所需的相机输入，外参输入约定固定为 `camera_to_world`。
+
+`tile_rows == 1` 且 `tile_cols == 1` 时，入口直接调用 `camera_view_render.py` 渲染整图；任一分块数大于 `1` 时，入口调用 `tiled_camera_renderer.py` 构造局部相机和融合结果，单个 tile 图像仍由同一个 `CameraViewRender` 实例渲染。核心渲染入口不维护耗时统计、不保存图片/视频、不做调用侧后处理。
 
 AEB 静态非原生车辆是一个可选初始化能力。传入 `ego_trajectory`、`insert_vehicle_id` 和可选 `insert_vehicle_s` 后，渲染器会加载轨迹 JSON，根据 `s` 生成固定 `body_to_world`，再调用 `static_vehicle_insertion.py` 加载对应 3DRealCar 模型。`static_vehicle_insertion.py` 不读取轨迹，也不决定插入位置；它只接收非原生车路径和已经算好的插入位姿。
 
@@ -161,14 +165,14 @@ AEB 静态非原生车辆是一个可选初始化能力。传入 `ego_trajectory
 camera_to_world = ego_to_world @ camera_to_ego
 ```
 
-然后把每帧的 `intrinsics`、`camera_to_world`、`width`、`height`、`timestamp` 传给渲染入口。`compose_compare_video.py` 默认用 `TiledCameraRenderer` 包装 `GaussianSceneRenderer`，`--render-tile-rows 1 --render-tile-cols 1` 时会转调核心整图渲染路径。需要插入 AEB 静止前车时，`compose_compare_video.py` 会把 `trajectory_path` 传给 `GaussianSceneRenderer`，由渲染器从同一份轨迹 JSON 中按 `mileage` 找到插入位置。
+然后把每帧的 `intrinsics`、`camera_to_world`、`width`、`height`、`timestamp` 传给 `GaussianSceneRenderer.render_camera()`。`--render-tile-rows 1 --render-tile-cols 1` 时直接渲染整图；任一分块数大于 `1` 时由入口内部调用分块实现。需要插入 AEB 静止前车时，`compose_compare_video.py` 会把 `trajectory_path` 传给 `GaussianSceneRenderer`，由渲染器从同一份轨迹 JSON 中按 `mileage` 找到插入位置。
 
 ## 4. 合成对比视频
 
 将原采集视频放左侧，逐帧渲染图像放右侧：
 
 ```bash
-pixi run python render_3dgs/compose_compare_video.py \
+pixi run python render_3dgs/reconstruction_compare/compose_compare_video.py \
   /workspace/HUGSIM/outputs/waymo/1680166 \
   /workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/aeb_front_original.mp4 \
   /workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/aeb_trajectory.json \
@@ -190,12 +194,12 @@ pixi run python render_3dgs/compose_compare_video.py \
 /workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/aeb_real_front_120_rendered.timing.csv
 ```
 
-默认实车相机 ID 为 `front_120/cam1`，内参文件为 `render_3dgs/camera_intrinsics.json`。如需切换，可传：
+默认实车相机 ID 为 `front_120/cam1`，内参文件为 `render_3dgs/data/camera_intrinsics.json`。如需切换，可传：
 
 ```bash
 --real-camera-id front_120/cam1 \
---real-camera-intrinsics /workspace/HUGSIM/render_3dgs/camera_intrinsics.json \
---real-camera-distortion-parameters /workspace/HUGSIM/render_3dgs/vtd_front_120/front_120_parameters.json \
+--real-camera-intrinsics /workspace/HUGSIM/render_3dgs/data/camera_intrinsics.json \
+--real-camera-distortion-parameters /workspace/HUGSIM/render_3dgs/data/vtd_front_120/front_120_parameters.json \
 --real-camera-timing-output /workspace/HUGSIM/outputs/render_3dgs/waymo/1680166/custom_timing.csv
 ```
 

@@ -10,7 +10,7 @@ fi
 SCENE_PATH="$1"
 ORIGINAL_IMAGE_PATH="$2"
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 REPO_ROOT="$(pwd)"
 
 if [[ ! -d "$SCENE_PATH" ]]; then
@@ -45,7 +45,7 @@ echo "Original images: $ORIGINAL_IMAGE_PATH"
 echo "Output: $OUTPUT_PATH"
 echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
 
-pixi run python render_3dgs/extract_scene_inputs.py \
+pixi run python render_3dgs/reconstruction_compare/extract_scene_inputs.py \
   "$SCENE_PATH" \
   "$ORIGINAL_IMAGE_PATH" \
   "$OUTPUT_PATH"
@@ -55,7 +55,7 @@ if [[ ! -f "$OUTPUT_PATH/aeb_front_original.mp4" ]]; then
   exit 1
 fi
 
-pixi run python render_3dgs/compose_compare_video.py \
+pixi run python render_3dgs/reconstruction_compare/compose_compare_video.py \
   "$SCENE_PATH" \
   "$OUTPUT_PATH/aeb_front_original.mp4" \
   "$OUTPUT_PATH/aeb_trajectory.json" \

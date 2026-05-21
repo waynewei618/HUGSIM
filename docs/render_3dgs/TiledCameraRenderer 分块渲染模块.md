@@ -1,12 +1,12 @@
-# TiledCameraRenderer 分块渲染模块
+# TiledCameraRenderer 分块实现模块
 
-本文档专门解析 `render_3dgs/tiled_camera_renderer.py`。该模块负责把一个目标 pinhole 相机拆成多个局部小 FOV tile 相机渲染，再把这些局部渲染结果重投影回目标图像坐标并融合。
+本文档专门解析 `render_3dgs/core/tiled_camera_renderer.py`。该模块负责把一个目标 pinhole 相机拆成多个局部小 FOV tile 相机渲染，再把这些局部渲染结果重投影回目标图像坐标并融合。
 
 它解决的是 3DGS 在超广角 pinhole 边缘处容易出现的屏幕空间 splat 过度拉伸问题。最终输出仍按调用方传入的目标相机内参、`camera_to_world` 和分辨率定义；分块只改变中间 rasterization 的局部相机，不改变最终图像像素对应的目标相机光线。
 
 ## 模块定位
 
-`TiledCameraRenderer` 是 `GaussianSceneRenderer` 外层的包装器。调用侧仍使用同一个接口：
+`TiledCameraRenderer` 是 `GaussianSceneRenderer` 内部使用的分块实现类。业务调用侧只使用统一入口：
 
 ```python
 image = renderer.render_camera(
@@ -21,13 +21,13 @@ image = renderer.render_camera(
 )
 ```
 
-当 `tile_rows == 1` 且 `tile_cols == 1` 时，模块不做分块，直接转调：
+当 `tile_rows == 1` 且 `tile_cols == 1` 时，`GaussianSceneRenderer` 直接调用 `camera_view_render.py` 渲染整图：
 
 ```python
-GaussianSceneRenderer.render_camera(...)
+CameraViewRender.render_camera(...)
 ```
 
-当 `tile_rows` 或 `tile_cols` 大于 `1` 时，进入 `_render_camera_tiled()` 分块路径。
+当 `tile_rows` 或 `tile_cols` 大于 `1` 时，`GaussianSceneRenderer` 复用同一个 `CameraViewRender` 实例创建 `TiledCameraRenderer`，再进入 `render_tiled_camera()` 分块路径。`camera_view_render.py` 的初始化只发生一次。
 
 当前默认常量：
 
@@ -38,13 +38,13 @@ GaussianSceneRenderer.render_camera(...)
 
 ## 总体流程
 
-分块路径的主流程在 `_render_camera_tiled()`：
+分块路径的主流程在 `render_tiled_camera()` 和 `_render_camera_tiled()`：
 
 1. 校验目标相机内参、外参、宽高、near/far 和分块数量。
-2. 创建一个完整目标相机 `reference_viewpoint`，用于帧结束后恢复 `scene_renderer.previous_camera`。
+2. 创建一个完整目标相机 `reference_viewpoint`，用于帧结束后恢复 `camera_view_render.previous_camera`。
 3. 根据目标相机和分块参数构造所有 tile render task。
 4. 按 tile 渲染图尺寸分组；同尺寸 tile 才能放进同一个 batch。
-5. 每个 batch 调用 `_render_viewpoint_batch()` 一次性渲染多个局部 tile 相机。
+5. 每个 batch 调用 `CameraViewRender.render_viewpoint_batch()` 一次性渲染多个局部 tile 相机。
 6. 对每个 tile 结果用 `torch.nn.functional.grid_sample()` 重采样回目标图像的 guard 区域。
 7. 用 feather 权重累加到 `output_accum`，同时累加 `weight_accum`。
 8. 最终输出 `output_accum / weight_accum`，并用 `render_to_uint8()` 转成 `uint8` RGB 图像。
@@ -248,13 +248,13 @@ output = output_accum / torch.clamp(weight_accum, min=1e-6)
 
 ## Batched Rasterization
 
-`TiledCameraRenderer` 没有逐 tile 调用 `GaussianSceneRenderer.render_camera()`，而是直接使用底层 `gaussian_renderer.call_rasterization()` 的 batched camera 能力。
+`TiledCameraRenderer` 不直接使用底层 `gaussian_renderer.call_rasterization()`。分块后每个局部 tile 相机交给 `camera_view_render.py` 中的 `CameraViewRender.render_viewpoint_batch()` 渲染，保证整图渲染和 tile 渲染共用同一套场景张量、动态物体和 appearance affine 逻辑。
 
-`_render_viewpoint_batch()` 要求同一个 batch 内所有 tile 相机宽高一致：
+`CameraViewRender.render_viewpoint_batch()` 要求同一个 batch 内所有 tile 相机宽高一致：
 
 ```python
 if any(viewpoint.width != width or viewpoint.height != height for viewpoint in viewpoints):
-    raise ValueError("batched tile viewpoints must have identical image dimensions")
+    raise ValueError("batched viewpoints must have identical image dimensions")
 ```
 
 因此 `_render_camera_tiled()` 会先按 `(viewpoint.width, viewpoint.height)` 分组，再按 `render_batch_size` 切 batch：
@@ -280,16 +280,16 @@ render_mode="RGB"
 
 ## 动态物体和 Appearance Affine
 
-`_scene_tensors_for_viewpoint()` 负责准备当前帧使用的背景和动态前景 Gaussian：
+`CameraViewRender._scene_tensors_for_viewpoint()` 负责准备当前帧使用的背景和动态前景 Gaussian：
 
-- 背景来自 `scene_renderer.gaussians`。
+- 背景来自 `camera_view_render.gaussians`。
 - 动态物体来自 `viewpoint.dynamics`。
 - 每个动态物体用当前帧的 `body_to_world` 变换位置和旋转。
 - 背景和前景通过 `cat_bgfg()` 拼成一次 rasterization 输入。
 
 分块 batch 内的所有 tile 属于同一目标帧，因此使用同一份动态物体状态。
 
-如果训练出的 Gaussian 模型启用了 `gaussians.affine`，`_apply_affine_batch()` 会按每个 tile 相机的相机位置和朝向单独计算 appearance affine，并对该 tile 渲染结果做颜色修正。这里没有共用完整目标相机的 appearance，因为每个 tile 的局部视角不同。
+如果训练出的 Gaussian 模型启用了 `gaussians.affine`，`CameraViewRender._apply_affine_batch()` 会按每个 tile 相机的相机位置和朝向单独计算 appearance affine，并对该 tile 渲染结果做颜色修正。这里没有共用完整目标相机的 appearance，因为每个 tile 的局部视角不同。
 
 ## 缓存内容
 
@@ -311,28 +311,28 @@ render_mode="RGB"
 
 ## Temporal State 处理
 
-底层 `GaussianSceneRenderer` 有 `previous_camera` 状态。分块渲染一帧时会产生多个局部 tile 相机，如果把状态留在最后一个 tile，相当于把下一帧的上一相机误设为局部相机。
+底层 `CameraViewRender` 有 `previous_camera` 状态。分块渲染一帧时会产生多个局部 tile 相机，如果把状态留在最后一个 tile，相当于把下一帧的上一相机误设为局部相机。
 
 当前实现先创建完整目标相机：
 
 ```python
-reference_viewpoint = self.scene_renderer._make_camera(...)
+reference_viewpoint = self.camera_view_render._make_camera(...)
 ```
 
 所有 tile 合成完成后再设置：
 
 ```python
-self.scene_renderer.previous_camera = reference_viewpoint
+self.camera_view_render.previous_camera = reference_viewpoint
 ```
 
 这样对外表现仍然像每帧只渲染了一个完整目标相机。
 
 ## 命令入口
 
-`compose_compare_video.py` 通过命令行参数把分块数量传给 `TiledCameraRenderer.render_camera()`：
+`compose_compare_video.py` 通过命令行参数把分块数量传给 `GaussianSceneRenderer.render_camera()`：
 
 ```bash
-pixi run python render_3dgs/compose_compare_video.py \
+pixi run python render_3dgs/reconstruction_compare/compose_compare_video.py \
   <scene_export> \
   <aeb_front_original.mp4> \
   <aeb_trajectory.json> \

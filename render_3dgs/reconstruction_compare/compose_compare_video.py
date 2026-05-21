@@ -11,18 +11,18 @@ from PIL import Image
 from tqdm import tqdm
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(REPO_ROOT))
 
-from render_3dgs.camera_math import as_camera_intrinsics, as_positive_int, as_transform
+from render_3dgs.core.camera_math import as_camera_intrinsics, as_positive_int, as_transform
 from render_3dgs.gaussian_scene_renderer import GaussianSceneRenderer
-from render_3dgs.lut_distortion import LookupTableDistorter
-from render_3dgs.tiled_camera_renderer import TiledCameraRenderer
+from render_3dgs.core.lut_distortion import LookupTableDistorter
 
 
 REAL_VEHICLE_FRONT_CAMERA_ID = "front_120/cam1"
-REAL_VEHICLE_FRONT_CAMERA_INTRINSICS = Path(__file__).with_name("camera_intrinsics.json")
-DEFAULT_FRONT_120_DISTORTION_PARAMETERS = Path(__file__).with_name("vtd_front_120") / "front_120_parameters.json"
+RENDER_3DGS_DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+REAL_VEHICLE_FRONT_CAMERA_INTRINSICS = RENDER_3DGS_DATA_DIR / "camera_intrinsics.json"
+DEFAULT_FRONT_120_DISTORTION_PARAMETERS = RENDER_3DGS_DATA_DIR / "vtd_front_120" / "front_120_parameters.json"
 
 
 def parse_args():
@@ -56,7 +56,7 @@ def parse_args():
         "--real-camera-distortion-parameters",
         help=(
             "Optional distortion parameter JSON or direct VTD lookup-table path. "
-            "When omitted, front_120/cam1 uses render_3dgs/vtd_front_120/front_120_parameters.json."
+            "When omitted, front_120/cam1 uses render_3dgs/data/vtd_front_120/front_120_parameters.json."
         ),
     )
     parser.add_argument(
@@ -487,7 +487,7 @@ def compose_reconstruction_compare_video(
     output_video = Path(output_video)
     output_video.parent.mkdir(parents=True, exist_ok=True)
 
-    scene_renderer = GaussianSceneRenderer(
+    renderer = GaussianSceneRenderer(
         scene_path,
         near_plane=near_plane,
         far_plane=far_plane,
@@ -505,7 +505,6 @@ def compose_reconstruction_compare_video(
             "Inserted static non-native vehicle "
             f"{insert_static_vehicle_id} at s={float(logged_s):.3f}"
         )
-    renderer = TiledCameraRenderer(scene_renderer)
     original_reader = imageio.get_reader(original_video)
     writer = imageio.get_writer(
         output_video,

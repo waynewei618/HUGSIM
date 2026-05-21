@@ -98,7 +98,7 @@ ${export_path}/vis/scene.splat
 
 ```bash
 CUDA_VISIBLE_DEVICES=${render_cuda} \
-bash render_3dgs/reconstruction_compare.sh \
+bash render_3dgs/reconstruction_compare/reconstruction_compare.sh \
   ${export_path} \
   ${source_path}
 ```

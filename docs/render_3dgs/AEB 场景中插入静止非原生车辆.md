@@ -19,9 +19,9 @@ export PATH_3DRealCar=/data/realcar3d
 
 ## 适用范围
 
-当前 `gui/app.py` 生成的是闭环仿真使用的 scenario yaml，后续由 `closed_loop.py` / `HUGSimEnv` 读取。它不是 `render_3dgs/compose_compare_video.py` 的输入。
+当前 `gui/app.py` 生成的是闭环仿真使用的 scenario yaml，后续由 `closed_loop.py` / `HUGSimEnv` 读取。它不是 `render_3dgs/reconstruction_compare/compose_compare_video.py` 的输入。
 
-当前 AEB 前视离线渲染已经支持直接插入一辆静态非原生车辆。`GaussianSceneRenderer` 初始化时会把 `aeb_trajectory.json` 加载为 `self.ego_trajectory`，根据指定里程 `s` 从轨迹中插值得到车辆插入位置和朝向，再交给 `render_3dgs/static_vehicle_insertion.py` 加载 `/data/realcar3d/<vehicle_id>/gs.pth`，并把它作为一个固定 `body_to_world` 动态对象合入每帧渲染。
+当前 AEB 前视离线渲染已经支持直接插入一辆静态非原生车辆。`GaussianSceneRenderer` 初始化时会把 `aeb_trajectory.json` 加载为 `self.ego_trajectory`，根据指定里程 `s` 从轨迹中插值得到车辆插入位置和朝向，再交给 `render_3dgs/core/static_vehicle_insertion.py` 加载 `/data/realcar3d/<vehicle_id>/gs.pth`，并把它作为一个固定 `body_to_world` 动态对象合入每帧渲染。
 
 `compose_compare_video.py` 仍然读取：
 
@@ -32,7 +32,7 @@ export PATH_3DRealCar=/data/realcar3d
 它不读取 GUI 导出的 `config.yaml`。如果要在 AEB 前视离线渲染中直接插入静止非原生车，使用：
 
 ```bash
-pixi run python render_3dgs/compose_compare_video.py \
+pixi run python render_3dgs/reconstruction_compare/compose_compare_video.py \
   "${scene_path}" \
   "${output_path}/aeb_front_original.mp4" \
   "${output_path}/aeb_trajectory.json" \

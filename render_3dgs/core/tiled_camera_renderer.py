@@ -4,9 +4,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from render_3dgs.camera_math import (
+from render_3dgs.core.camera_math import (
     as_camera_intrinsics,
-    as_positive_float,
     as_positive_int,
     as_transform,
     render_to_uint8,
@@ -126,116 +125,30 @@ def tile_feather_weights(xs, ys, core_x0, core_y0, core_x1, core_y1, guard_x0, g
 class TiledCameraRenderer:
     def __init__(
         self,
-        scene_renderer,
+        camera_view_render,
         guard_pixels=DEFAULT_TILE_GUARD_PIXELS,
         render_batch_size=DEFAULT_TILE_RENDER_BATCH_SIZE,
     ):
-        from gaussian_renderer import call_rasterization, cat_bgfg, concatenate_all
-
-        self.scene_renderer = scene_renderer
+        self.camera_view_render = camera_view_render
         self.guard_pixels = as_positive_int(guard_pixels, "guard_pixels")
         self.render_batch_size = as_positive_int(render_batch_size, "render_batch_size")
-        self._call_rasterization = call_rasterization
-        self._cat_bgfg = cat_bgfg
-        self._concatenate_all = concatenate_all
         self._tile_composite_cache = {}
 
     @property
     def device(self):
-        return self.scene_renderer.background.device
+        return self.camera_view_render.background.device
 
     def reset_temporal_state(self):
-        self.scene_renderer.reset_temporal_state()
-
-    def _render_planes(self, near_plane, far_plane):
-        near_plane = self.scene_renderer.near_plane if near_plane is None else as_positive_float(near_plane, "near_plane")
-        far_plane = self.scene_renderer.far_plane if far_plane is None else as_positive_float(far_plane, "far_plane")
-        if far_plane <= near_plane:
-            raise ValueError("far_plane must be greater than near_plane")
-        return near_plane, far_plane
-
-    def _scene_tensors_for_viewpoint(self, viewpoint):
-        import roma
-
-        renderer = self.scene_renderer
-        all_fg = []
-        for track_id, b2w in viewpoint.dynamics.items():
-            dynamic_model = renderer.dynamic_gaussians[track_id]
-            w_dxyz = (b2w[:3, :3] @ dynamic_model.get_xyz.T).T + b2w[:3, 3]
-
-            drot = roma.quat_wxyz_to_xyzw(dynamic_model.get_rotation)
-            drot = roma.unitquat_to_rotmat(drot)
-            w_drot = roma.quat_xyzw_to_wxyz(roma.rotmat_to_unitquat(b2w[:3, :3] @ drot))
-            all_fg.append(
-                [
-                    w_dxyz,
-                    dynamic_model.get_opacity,
-                    dynamic_model.get_scaling,
-                    w_drot,
-                    dynamic_model.get_features,
-                    dynamic_model.get_3D_features,
-                ]
-            )
-
-        all_fg = self._concatenate_all(all_fg)
-        return self._cat_bgfg(renderer.gaussians, all_fg)
-
-    def _apply_affine_batch(self, rendered_images, camera_to_worlds):
-        renderer = self.scene_renderer
-        if not renderer.gaussians.affine:
-            return rendered_images
-
-        refined_images = []
-        for rendered_image, camera_to_world in zip(rendered_images, camera_to_worlds):
-            cam_xyz = camera_to_world[:3, 3].cuda()
-            cam_dir = camera_to_world[:3, 2].cuda()
-            o_enc = renderer.gaussians.pos_enc(cam_xyz[None, :] / 60)
-            d_enc = renderer.gaussians.dir_enc(cam_dir[None, :])
-            appearance = renderer.gaussians.appearance_model(torch.cat([o_enc, d_enc], dim=1)) * 1e-1
-            affine_weight, affine_bias = appearance[:, :9].view(3, 3), appearance[:, -3:]
-            affine_weight = affine_weight + torch.eye(3, device=appearance.device)
-            colors = rendered_image.view(3, -1).permute(1, 0)
-            refined_image = (colors @ affine_weight + affine_bias).clip(0, 1).permute(1, 0).view(*rendered_image.shape)
-            refined_images.append(refined_image)
-        return torch.stack(refined_images, dim=0)
-
-    def _render_viewpoint_batch(self, viewpoints, near_plane, far_plane):
-        width = viewpoints[0].width
-        height = viewpoints[0].height
-        if any(viewpoint.width != width or viewpoint.height != height for viewpoint in viewpoints):
-            raise ValueError("batched tile viewpoints must have identical image dimensions")
-
-        renderer = self.scene_renderer
-        with torch.no_grad():
-            xyz, opacities, scales, rotations, shs, _ = self._scene_tensors_for_viewpoint(viewpoints[0])
-            viewmats = torch.stack([torch.linalg.inv(viewpoint.c2w) for viewpoint in viewpoints], dim=0)
-            intrinsics = torch.stack([viewpoint.K[:3, :3] for viewpoint in viewpoints], dim=0)
-            camera_count = len(viewpoints)
-
-            renders, _, _ = self._call_rasterization(
-                means=xyz,
-                quats=rotations,
-                scales=scales,
-                opacities=opacities[:, 0],
-                colors=shs,
-                viewmats=viewmats,
-                Ks=intrinsics,
-                width=width,
-                height=height,
-                render_mode="RGB",
-                sh_degree=renderer.gaussians.active_sh_degree,
-                near_plane=near_plane,
-                far_plane=far_plane,
-                max_radius_clip=0.0,
-                packed=False,
-                backgrounds=renderer.background[None, :].expand(camera_count, -1),
-            )
-
-            rendered_images = renders[..., :3].permute(0, 3, 1, 2)
-            rendered_images = self._apply_affine_batch(rendered_images, [viewpoint.c2w for viewpoint in viewpoints])
-        return list(rendered_images)
+        self.camera_view_render.reset_temporal_state()
 
     def render_camera(
+        self,
+        *args,
+        **kwargs,
+    ):
+        return self.render_tiled_camera(*args, **kwargs)
+
+    def render_tiled_camera(
         self,
         intrinsics,
         camera_to_world,
@@ -244,26 +157,16 @@ class TiledCameraRenderer:
         timestamp=0.0,
         dynamics=None,
         image_name="camera_render",
-        near_plane=0.01,
-        far_plane=500,
+        near_plane=None,
+        far_plane=None,
         tile_rows=1,
         tile_cols=1,
     ):
-        near_plane, far_plane = self._render_planes(near_plane, far_plane)
+        near_plane, far_plane = self.camera_view_render.render_planes(near_plane, far_plane)
         tile_rows = as_positive_int(tile_rows, "tile_rows")
         tile_cols = as_positive_int(tile_cols, "tile_cols")
         if tile_rows == 1 and tile_cols == 1:
-            return self.scene_renderer.render_camera(
-                intrinsics=intrinsics,
-                camera_to_world=camera_to_world,
-                width=width,
-                height=height,
-                timestamp=timestamp,
-                dynamics=dynamics,
-                image_name=image_name,
-                near_plane=near_plane,
-                far_plane=far_plane,
-            )
+            raise ValueError("render_tiled_camera requires tile_rows or tile_cols greater than 1")
         return self._render_camera_tiled(
             intrinsics=intrinsics,
             camera_to_world=camera_to_world,
@@ -296,7 +199,7 @@ class TiledCameraRenderer:
         for static_task in static_tasks:
             tile_to_real_rotation = static_task["tile_to_real_rotation"]
             tile_camera_to_world = camera_to_world @ make_transform(tile_to_real_rotation)
-            tile_viewpoint = self.scene_renderer._make_camera(
+            tile_viewpoint = self.camera_view_render._make_camera(
                 intrinsics=static_task["tile_intrinsics"],
                 camera_to_world=tile_camera_to_world,
                 width=static_task["tile_width"],
@@ -446,13 +349,13 @@ class TiledCameraRenderer:
         camera_to_world = as_transform(camera_to_world, "camera_to_world")
         width = as_positive_int(width, "width")
         height = as_positive_int(height, "height")
-        near_plane, far_plane = self._render_planes(near_plane, far_plane)
+        near_plane, far_plane = self.camera_view_render.render_planes(near_plane, far_plane)
         if tile_rows > height:
             raise ValueError("tile_rows must not exceed image height")
         if tile_cols > width:
             raise ValueError("tile_cols must not exceed image width")
 
-        reference_viewpoint = self.scene_renderer._make_camera(
+        reference_viewpoint = self.camera_view_render._make_camera(
             intrinsics=intrinsics,
             camera_to_world=camera_to_world,
             width=width,
@@ -483,7 +386,7 @@ class TiledCameraRenderer:
         for batch_tasks in tasks_by_size.values():
             for batch_start in range(0, len(batch_tasks), self.render_batch_size):
                 batch = batch_tasks[batch_start : batch_start + self.render_batch_size]
-                render_tensors = self._render_viewpoint_batch(
+                render_tensors = self.camera_view_render.render_viewpoint_batch(
                     [task["viewpoint"] for task in batch],
                     near_plane,
                     far_plane,
@@ -506,6 +409,6 @@ class TiledCameraRenderer:
                     )
                     weight_accum[:, :, guard_y0:guard_y1, guard_x0:guard_x1] += weights
 
-        self.scene_renderer.previous_camera = reference_viewpoint
+        self.camera_view_render.previous_camera = reference_viewpoint
         output = output_accum / torch.clamp(weight_accum, min=1e-6)
         return render_to_uint8(output[0])

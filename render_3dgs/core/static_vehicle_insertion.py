@@ -72,7 +72,14 @@ def vehicle_rotation_from_tangent(tangent):
 
 
 def ground_height(scene_path, u, v):
-    with (Path(scene_path) / "ground_param.pkl").open("rb") as f:
+    scene_path = Path(scene_path)
+    ground_param_path = scene_path / "ground_param.pkl"
+    if not ground_param_path.exists():
+        parent_ground_param_path = scene_path.parent / "ground_param.pkl"
+        if parent_ground_param_path.exists():
+            ground_param_path = parent_ground_param_path
+
+    with ground_param_path.open("rb") as f:
         cam_poses, cam_heights, commands = pickle.load(f)
     cam_poses = dense_ground_camera_poses(np.asarray(cam_poses), commands)
 
