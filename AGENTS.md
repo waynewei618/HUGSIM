@@ -42,20 +42,9 @@
 - 数据路径不一致时，不要创建软链接作为默认解决方式。
 - 优先通过脚本已有参数、环境变量或配置文件覆盖数据路径。
 - 如果上游脚本硬编码路径且没有参数入口，优先修改脚本中的路径变量；文档中应记录要修改的变量名和目标路径，而不是要求创建软链接。
-
 ## 算力机训练结果搬迁
 
 - 由于算力机空间有限，每次算力机训练任务完成后，应将对应的 `outputs/<dataset>/<scene>/` 场景结果从算力机移动到控制机相同路径。
 - 搬迁前必须先确认该场景训练已完成且没有进程正在写入；正在训练或流水线未完成的场景目录不要移动。
 - 从控制机宿主机发起 `rsync`，优先使用 `rsync -a --update --partial compute:/home/sil/workspace/HUGSIM/outputs/<dataset>/<scene>/ /home/sil/workspace/HUGSIM/outputs/<dataset>/<scene>/`，避免覆盖控制机上更新的同名结果。
 - 删除算力机目录前，先用 `rsync -aun --itemize-changes` 或等价方式确认远端内容已经同步到控制机；确认后再精确删除算力机上的对应场景目录以释放空间。
-
-## 阶段目标：AEB HIL/VIL 前视渲染
-
-- 当前阶段目标是基于离线仿真准备阶段输出的结果，提供自车世界位姿、实际相机内参、实际相机相对于自车的安装外参和分辨率，渲染得到前视视频，用于 AEB 测试的 HIL/VIL 实际项目。
-- 该阶段相关代码集中放在 `render_3dgs/`，不要继续散落到通用训练、数据预处理或评测脚本目录中。
-- 实际项目开发的程序应功能明确单一，命令输入保持简单；核心渲染模块 `gaussian_scene_renderer.py` 只负责加载 3DGS 场景权重，并根据相机内参、`camera_to_world` 外参和分辨率返回一张图像。
-- `trajectory.json` 只放自车位姿轨迹的最少信息，核心字段为每帧 `ego_position`、自车旋转和从 0 开始累计的 `mileage`；自车旋转可用 `ego_quaternion_wxyz`、`ego_quaternion_xyzw` 或 `ego_rpy` 表达，实际项目不能只给 3D 位置。`camera.json` 放实际相机标定信息，核心字段为 `intrinsics`、`camera_to_ego`、`width`、`height` 和必要的 `fps`。
-- 训练场景示例信息提取放在 `render_3dgs/reconstruction_compare/extract_scene_inputs.py`，按自车轨迹逐帧调用核心渲染类并与原采集视频合成对比放在 `render_3dgs/reconstruction_compare/compose_compare_video.py`，不要混入核心 3DGS 渲染模块。
-- 相机内外参必须来自实际相机标定，不要在实际项目代码中用默认相机参数、虚构外参或仅 3D 位置替代完整相机外参；从训练场景提取的示例 `camera_to_ego` 只能用于复现示例，实际项目必须替换为真实安装外参。
-- 重建效果观察生成的 `aeb_*.json`、`aeb_*.mp4` 和轨迹观察图片不要写回训练场景目录，默认集中放到 `outputs/render_3dgs/<dataset>/<scene>/`。轨迹观察图片固定为 `aeb_trajectory_plots.png`，左侧里程-高度，右侧水平面 x-y；当前 HUGSIM 场景坐标中高度使用 scene `y`，水平面 x-y 使用 `(scene z, -scene x)`。
