@@ -1,13 +1,14 @@
 import os
-from typing import NamedTuple
-import numpy as np
 import json
-from plyfile import PlyData, PlyElement
-from utils.sh_utils import SH2RGB
-from scene.gaussian_model import BasicPointCloud
-import torch.nn.functional as F
-from imageio.v2 import imread
+from typing import NamedTuple
+
+import numpy as np
 import torch
+from imageio.v2 import imread
+from plyfile import PlyData, PlyElement
+
+from scene.gaussian_model import BasicPointCloud
+from utils.sh_utils import SH2RGB
 
 
 class CameraInfo(NamedTuple):
@@ -33,22 +34,8 @@ class SceneInfo(NamedTuple):
     ply_path: str
     verts: dict
 
-def getNerfppNorm(cam_info, data_type):
-    def get_center_and_diag(cam_centers):
-        cam_centers = np.hstack(cam_centers)
-        avg_cam_center = np.mean(cam_centers, axis=1, keepdims=True)
-        center = avg_cam_center
-        dist = np.linalg.norm(cam_centers - center, axis=0, keepdims=True)
-        diagonal = np.max(dist)
-        return center.flatten(), diagonal
-
-    cam_centers = []
-    for cam in cam_info:
-        cam_centers.append(cam.c2w[:3, 3:4]) # cam_centers in world coordinate
-
-    radius = 10
-
-    return {'radius': radius}
+def getNerfppNorm(cam_info):
+    return {'radius': 10}
 
 def fetchPly(path):
     plydata = PlyData.read(path)
@@ -80,114 +67,150 @@ def storePly(path, xyz, rgb):
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
 
-def readHUGSIMCameras(path, data_type, ignore_dynamic):
+
+def strip_relative_prefix(path):
+    return path.replace("\\", "/").removeprefix("./")
+
+
+def abs_data_path(scene_path, relative_path):
+    return os.path.join(scene_path, strip_relative_prefix(relative_path))
+
+
+def frame_camera_name(frame):
+    return frame["camera_name"]
+
+
+def camera_params(camera_paras, camera_name):
+    params = camera_paras["cameras"][camera_name]
+
+    camera_to_ego = np.eye(4, dtype=np.float64)
+    camera_to_ego[:3, :3] = np.asarray(params["rotation_matrix"], dtype=np.float64)
+    camera_to_ego[:3, 3] = np.asarray(params["translation"], dtype=np.float64)
+
+    intrinsics = params["intrinsics"]
+    return {
+        "camera_to_ego": camera_to_ego,
+        "intrinsic": np.asarray(intrinsics["matrix"], dtype=np.float64),
+        "width": int(intrinsics["width"]),
+        "height": int(intrinsics["height"]),
+    }
+
+
+def frame_camera_params(camera_paras, frame):
+    return camera_params(camera_paras, frame_camera_name(frame))
+
+
+def frame_camtoworld(camera_paras, frame):
+    params = frame_camera_params(camera_paras, frame)
+    ego_to_world = np.asarray(frame["ego_to_world"], dtype=np.float64)
+    return ego_to_world @ params["camera_to_ego"]
+
+
+def frame_object_to_ego(dynamic_pose):
+    if isinstance(dynamic_pose, dict) and "object_to_ego" in dynamic_pose:
+        dynamic_pose = dynamic_pose["object_to_ego"]
+    return np.asarray(dynamic_pose, dtype=np.float64)
+
+
+def frame_object_to_world(frame, dynamic_pose):
+    ego_to_world = np.asarray(frame["ego_to_world"], dtype=np.float64)
+    return ego_to_world @ frame_object_to_ego(dynamic_pose)
+
+
+def frame_group_key(frame):
+    return os.path.splitext(os.path.basename(strip_relative_prefix(frame["rgb_path"])))[0]
+
+
+def split_train_test(frames):
+    groups, group_order = {}, []
+    for idx, frame in enumerate(frames):
+        key = frame_group_key(frame)
+        if key not in groups:
+            groups[key] = len(group_order)
+            group_order.append(key)
+        yield idx, groups[key]
+
+
+def readHUGSIMCameras(path, ignore_dynamic):
     train_cam_infos, test_cam_infos = [], []
     with open(os.path.join(path, 'meta_data.json')) as json_file:
         meta_data = json.load(json_file)
+    with open(os.path.join(path, 'camera_paras.json')) as json_file:
+        camera_paras = json.load(json_file)
 
-        verts = {}
-        if 'verts' in meta_data and not ignore_dynamic:
-            verts_list = meta_data['verts']
-            for k, v in verts_list.items():
-                verts[k] = np.array(v)
+    verts = {}
+    if 'verts' in meta_data and not ignore_dynamic:
+        verts_list = meta_data['verts']
+        for k, v in verts_list.items():
+            verts[k] = np.array(v)
 
-        frames = meta_data['frames']
-        for idx, frame in enumerate(frames):
-            c2w = np.array(frame['camtoworld'])
+    frames = meta_data['frames']
+    for idx, group_idx in split_train_test(frames):
+        frame = frames[idx]
+        params = frame_camera_params(camera_paras, frame)
+        c2w = frame_camtoworld(camera_paras, frame)
+        intrinsic = params["intrinsic"]
 
-            rgb_path = os.path.join(path, frame['rgb_path'].replace('./', ''))
+        rgb_path = abs_data_path(path, frame['rgb_path'])
 
-            rgb_split = rgb_path.split('/')
-            image_name = '_'.join([rgb_split[-2], rgb_split[-1][:-4]])
-            image = imread(rgb_path)
+        rgb_split = rgb_path.split('/')
+        image_name = '_'.join([rgb_split[-2], rgb_split[-1][:-4]])
+        image = imread(rgb_path)
+        height, width = int(params["height"]), int(params["width"])
+        if image.shape[0] != height or image.shape[1] != width:
+            raise ValueError(
+                f"Image size mismatch for {rgb_path}: image {image.shape[1]}x{image.shape[0]}, "
+                f"camera_paras {width}x{height}"
+            )
 
-            semantic_2d = None
-            semantic_pth = rgb_path.replace("images", "semantics").replace('.png', '.npy').replace('.jpg', '.npy')
-            if os.path.exists(semantic_pth):
-                semantic_2d = np.load(semantic_pth)
-                semantic_2d[(semantic_2d == 14) | (semantic_2d == 15)] = 13
+        semantic_2d = None
+        semantic_pth = rgb_path.replace("images", "semantics").replace('.png', '.npy').replace('.jpg', '.npy')
+        if os.path.exists(semantic_pth):
+            semantic_2d = np.load(semantic_pth)
+            semantic_2d[(semantic_2d == 14) | (semantic_2d == 15)] = 13
 
-            optical_path = rgb_path.replace("images", "flow").replace('.png', '_flow.npy').replace('.jpg', '_flow.npy')
-            if os.path.exists(optical_path):
-                optical_image = np.load(optical_path)
-            else:
-                optical_image = None
+        optical_path = rgb_path.replace("images", "flow").replace('.png', '_flow.npy').replace('.jpg', '_flow.npy')
+        if os.path.exists(optical_path):
+            optical_image = np.load(optical_path)
+        else:
+            optical_image = None
 
-            depth_path = rgb_path.replace("images", "depth").replace('.png', '.pt').replace('.jpg', '.pt')
-            if os.path.exists(depth_path):
-                depth = torch.load(depth_path, weights_only=True)
-            else:
-                depth = None
+        depth_path = rgb_path.replace("images", "depth").replace('.png', '.pt').replace('.jpg', '.pt')
+        if os.path.exists(depth_path):
+            depth = torch.load(depth_path, weights_only=True)
+        else:
+            depth = None
 
-            mask = None
-            mask_path = rgb_path.replace("images", "masks").replace('.png', '.npy').replace('.jpg', '.npy')
-            if os.path.exists(mask_path):
-                mask = np.load(mask_path)
+        mask = None
+        mask_path = rgb_path.replace("images", "masks").replace('.png', '.npy').replace('.jpg', '.npy')
+        if os.path.exists(mask_path):
+            mask = np.load(mask_path)
 
-            timestamp = frame.get('timestamp', -1)
-
-            intrinsic = np.array(frame['intrinsics'])
+        timestamp = frame.get('timestamp', -1)
+        
+        dynamics = {}
+        if not ignore_dynamic:
+            for iid, pose in frame.get('dynamics', {}).items():
+                dynamics[iid] = torch.tensor(frame_object_to_world(frame, pose)).cuda()
             
-            dynamics = {}
-            if 'dynamics' in frame and not ignore_dynamic:
-                dynamics_list = frame['dynamics']
-                for iid in dynamics_list.keys():
-                    dynamics[iid] = torch.tensor(dynamics_list[iid]).cuda()
-                
-            cam_info = CameraInfo(K=intrinsic, c2w=c2w, image=np.array(image),
-                                image_path=rgb_path, image_name=image_name, height=image.shape[0],
-                                width=image.shape[1], semantic2d=semantic_2d, 
-                                optical_image=optical_image, depth=depth, mask=mask, timestamp=timestamp, dynamics=dynamics)
-            
-            if data_type == 'kitti360':
-                if idx < 20:
-                    train_cam_infos.append(cam_info)
-                elif idx % 20 < 16:
-                    train_cam_infos.append(cam_info)
-                elif idx % 20 >= 16:
-                    test_cam_infos.append(cam_info)
-                else:
-                    continue
-
-            elif data_type == 'kitti':
-                if idx < 10 or idx >= len(frames) - 4:
-                    train_cam_infos.append(cam_info)
-                elif idx % 4 < 2:
-                    train_cam_infos.append(cam_info)
-                elif idx % 4 == 2:
-                    test_cam_infos.append(cam_info)
-                else:
-                    continue
-
-            elif data_type == "nuscenes":
-                if idx % 30 >= 24:
-                    test_cam_infos.append(cam_info)
-                else:
-                    train_cam_infos.append(cam_info)
-
-            elif data_type == "waymo":
-                if idx % 15 >= 12:
-                    test_cam_infos.append(cam_info)
-                else:
-                    train_cam_infos.append(cam_info)
-
-            elif data_type == "pandaset":
-                if idx > 30 and idx % 30 >= 24:
-                    test_cam_infos.append(cam_info)
-                else:
-                    train_cam_infos.append(cam_info)
-            
-            else:
-                raise NotImplementedError
+        cam_info = CameraInfo(K=intrinsic, c2w=c2w, image=np.array(image),
+                            image_path=rgb_path, image_name=image_name, height=height,
+                            width=width, semantic2d=semantic_2d, 
+                            optical_image=optical_image, depth=depth, mask=mask, timestamp=timestamp, dynamics=dynamics)
+        
+        if group_idx % 5 == 4:
+            test_cam_infos.append(cam_info)
+        else:
+            train_cam_infos.append(cam_info)
 
     return train_cam_infos, test_cam_infos, verts
 
 
-def readHUGSIMInfo(path, data_type, ignore_dynamic):
-    train_cam_infos, test_cam_infos, verts = readHUGSIMCameras(path, data_type, ignore_dynamic)
+def readHUGSIMInfo(path, ignore_dynamic):
+    train_cam_infos, test_cam_infos, verts = readHUGSIMCameras(path, ignore_dynamic)
 
     print(f'Loaded {len(train_cam_infos)} train cameras and {len(test_cam_infos)} test cameras')
-    nerf_normalization = getNerfppNorm(train_cam_infos, data_type)
+    nerf_normalization = getNerfppNorm(train_cam_infos)
 
     ply_path = os.path.join(path, "points3d.ply")
     if not os.path.exists(ply_path):

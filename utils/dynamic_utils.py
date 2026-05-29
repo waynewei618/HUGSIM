@@ -140,18 +140,11 @@ class unicycle(torch.nn.Module):
         return torch.mean((self.a - self.input_a) ** 2 + (self.b - self.input_b) ** 2) * 10
 
 
-def create_unicycle_model(train_cams, model_path, opt_iter=0, opt_pos=False, data_type='kitti'):
+def create_unicycle_model(train_cams, model_path, opt_iter=0, opt_pos=False):
     unicycle_models = {}
-    if data_type == 'kitti':
-        cameras = [cam for cam in train_cams if 'cam_0' in cam.image_name]
-    elif data_type == 'waymo':
-        cameras = [cam for cam in train_cams if 'cam_1' in cam.image_name]
-    elif data_type == 'nuscenes':
-        cameras = [cam for cam in train_cams if (('CAM_FRONT' in cam.image_name) and ('LEFT' not in cam.image_name) and ('RIGHT' not in cam.image_name))]
-    elif data_type == 'pandaset':
-        cameras = [cam for cam in train_cams if 'front_camera' in cam.image_name]
-    else:
-        raise NotImplementedError    
+    cameras = [cam for cam in train_cams if cam.image_name.startswith("CAM_FRONT_")]
+    if not cameras:
+        raise RuntimeError("No CAM_FRONT cameras found for unicycle model fitting.")
     
     cameras = sorted(cameras, key=lambda x: x.timestamp)
 
@@ -206,25 +199,3 @@ def create_unicycle_model(train_cams, model_path, opt_iter=0, opt_pos=False, dat
         torch.save(model.capture(), os.path.join(model_path, f"ckpts/unicycle_{track_id}.pth"))
 
     return unicycle_models
-
-
-if __name__ == "__main__":
-    from scene import Scene, GaussianModel  
-    from omegaconf import OmegaConf
-    from argparse import ArgumentParser
-
-    parser = ArgumentParser(description="Training script parameters")
-    parser.add_argument("--base_cfg", type=str, default="./configs/gs_base.yaml")
-    parser.add_argument("--data_cfg", type=str, default="./configs/nusc.yaml")
-    parser.add_argument("--source_path", type=str, default="")
-    parser.add_argument("--model_path", type=str, default="")
-    args = parser.parse_args()
-    cfg = OmegaConf.merge(OmegaConf.load(args.base_cfg), OmegaConf.load(args.data_cfg))
-    if len(args.source_path) > 0:
-        cfg.source_path = args.source_path
-    if len(args.model_path) > 0:
-        cfg.model_path = args.model_path
-    gaussians = GaussianModel(3, feat_mutable=True)
-    print("loading scene...")
-    scene = Scene(cfg, gaussians, data_type=cfg.data_type)
-    create_unicycle_model(scene.getTrainCameras(), cfg.model_path, 500, False, cfg.data_type)

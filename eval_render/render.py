@@ -19,6 +19,13 @@ import flow_vis_torch
 from utils.cmap import color_depth_map
 from imageio.v2 import imwrite
 
+
+def infer_camera_gap(views):
+    if not views:
+        return 1
+    first_frame = views[0].image_name.rsplit("_", 1)[-1]
+    return max(1, sum(view.image_name.rsplit("_", 1)[-1] == first_frame for view in views))
+
 def to4x4(R, T):
     RT = np.eye(4,4)
     RT[:3, :3] = R
@@ -79,17 +86,8 @@ def render_set(name:str, scene:Scene, background:torch.Tensor):
     else:
         views = scene.getTestCameras()
     
-    save_tasks = []
+    gap = infer_camera_gap(views)
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
-        if scene.data_type == 'kitti':
-            gap = 2
-        elif scene.data_type == 'kitti360':
-            gap = 4
-        elif scene.data_type == 'waymo':
-            gap = 3
-        elif scene.data_type == 'nuscenes' or scene.data_type == 'pandaset':
-            gap = 6
-            
         if idx - gap < 0:
             prev_view = views[0]
         else:
@@ -124,7 +122,7 @@ def render_sets(args):
     cfg.model_path = args.model_path
     with torch.no_grad():
         gaussians = GaussianModel(cfg.model.sh_degree, affine=cfg.affine)
-        scene = Scene(cfg, gaussians, load_iteration=args.iteration, shuffle=False, data_type=cfg.data_type)
+        scene = Scene(cfg, gaussians, load_iteration=args.iteration, shuffle=False)
 
         bg_color = [1,1,1] if cfg.model.white_background else [0, 0, 0]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")

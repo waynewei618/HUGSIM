@@ -1,6 +1,5 @@
 import os
 import random
-import json
 from utils.system_utils import searchForMaxIteration
 from scene.dataset_readers import sceneLoadTypeCallbacks
 from scene.gaussian_model import GaussianModel
@@ -12,17 +11,25 @@ import numpy as np
 import shutil
 
 
+VEHICLE_TEMPLATE = "utils/vehicle_template/benz_nuscenes.ply"
+
+
 def copy_if_different(src, dst):
     if os.path.abspath(src) != os.path.abspath(dst):
         shutil.copyfile(src, dst)
 
 
-def load_cameras(args, data_type, ignore_dynamic=False):
+def copy_if_exists(src, dst):
+    if os.path.exists(src):
+        copy_if_different(src, dst)
+
+
+def load_cameras(args, ignore_dynamic=False):
     train_cameras = {}
     test_cameras = {}
     if os.path.exists(os.path.join(args.source_path, "meta_data.json")):
         print("Found meta_data.json file, assuming HUGSIM format data set!")
-        scene_info = sceneLoadTypeCallbacks['HUGSIM'](args.source_path, data_type, ignore_dynamic)
+        scene_info = sceneLoadTypeCallbacks['HUGSIM'](args.source_path, ignore_dynamic)
     else:
         assert False, "Could not recognize scene type! "+args.source_path
 
@@ -35,14 +42,13 @@ def load_cameras(args, data_type, ignore_dynamic=False):
 class Scene:
 
     def __init__(self, args, gaussians:GaussianModel, load_iteration=None, shuffle=True, 
-                 data_type='kitti360', ignore_dynamic=False, planning=None):
+                 ignore_dynamic=False, planning=None):
         """b
         :param path: Path to colmap scene main folder.
         """
         self.model_path = args.model_path
         self.loaded_iter = None
         self.gaussians = gaussians
-        self.data_type = data_type
 
         if load_iteration:
             if load_iteration == -1:
@@ -51,7 +57,7 @@ class Scene:
                 self.loaded_iter = load_iteration
             print("Loading trained model at iteration {}".format(self.loaded_iter))
 
-        self.train_cameras, self.test_cameras, scene_info = load_cameras(args, data_type, ignore_dynamic)
+        self.train_cameras, self.test_cameras, scene_info = load_cameras(args, ignore_dynamic)
 
         self.dynamic_verts = scene_info.verts
         self.dynamic_gaussians = {}
@@ -64,7 +70,9 @@ class Scene:
         if not self.loaded_iter:
             copy_if_different(scene_info.ply_path, os.path.join(self.model_path, "input.ply"))
             copy_if_different(os.path.join(args.source_path, 'meta_data.json'), os.path.join(self.model_path, 'meta_data.json'))
+            copy_if_different(os.path.join(args.source_path, 'camera_paras.json'), os.path.join(self.model_path, 'camera_paras.json'))
             copy_if_different(os.path.join(args.source_path, 'ground_param.pkl'), os.path.join(self.model_path, 'ground_param.pkl'))
+            copy_if_exists(os.path.join(args.source_path, 'geo_reference.json'), os.path.join(self.model_path, 'geo_reference.json'))
 
         if shuffle:
             random.shuffle(scene_info.train_cameras)
@@ -97,7 +105,7 @@ class Scene:
 
                 # init from template
                 l, h, w = vertices[:, 0].max() - vertices[:, 0].min(), vertices[:, 1].max() - vertices[:, 1].min(), vertices[:, 2].max() - vertices[:, 2].min()
-                pcd = o3d.io.read_point_cloud(f"utils/vehicle_template/benz_{data_type}.ply")
+                pcd = o3d.io.read_point_cloud(VEHICLE_TEMPLATE)
                 points = np.array(pcd.points) * np.array([l, h, w])
                 pcd.points = o3d.utility.Vector3dVector(points)
                 pcd.colors = o3d.utility.Vector3dVector(np.ones_like(points) * 0.5)

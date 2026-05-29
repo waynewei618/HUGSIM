@@ -1,18 +1,16 @@
 from torch.utils.data import Dataset
 
 class HUGSIM_dataset(Dataset):
-    def __init__(self, views, data_type):
+    def __init__(self, views):
         super().__init__()
         self.views = views
-        self.data_type = data_type
-        if data_type == 'kitti360':
-            self.gap = 4
-        elif data_type == 'waymo':
-            self.gap = 3
-        elif data_type == 'kitti':
-            self.gap = 2
-        else:
-            self.gap = 6
+        self.gap = self._infer_camera_gap()
+
+    def _infer_camera_gap(self):
+        if not self.views:
+            return 1
+        first_frame = self.views[0].image_name.rsplit("_", 1)[-1]
+        return max(1, sum(view.image_name.rsplit("_", 1)[-1] == first_frame for view in self.views))
     
     def __getitem__(self, index):
         if index - self.gap >= 0:

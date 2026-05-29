@@ -1,4 +1,11 @@
 import os
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from utils.model_cache import configure_model_cache
 
 configure_model_cache()
@@ -46,7 +53,7 @@ def training(cfg):
     prepare_output(cfg)
     (ground_model_params, _) = torch.load(os.path.join(cfg.model_path, "ckpts", f"ground_chkpnt30000.pth"))
     gaussians = GaussianModel(cfg.model.sh_degree, feat_mutable=True, affine=cfg.affine, ground_args=ground_model_params)
-    scene = Scene(cfg, gaussians, data_type=cfg.data_type)
+    scene = Scene(cfg, gaussians)
 
     if resume_iteration > 0:
         print(f"Resuming from iteration {resume_iteration}")
@@ -63,7 +70,7 @@ def training(cfg):
         dynamic_gaussian.training_setup(cfg.opt)
     
     if cfg.unicycle:
-        unicycles = create_unicycle_model(scene.getTrainCameras(), cfg.model_path, cfg.uc_fit_iter, uc_opt_pos, cfg.data_type)
+        unicycles = create_unicycle_model(scene.getTrainCameras(), cfg.model_path, cfg.uc_fit_iter, uc_opt_pos)
     else:
         unicycles = {}
 
@@ -79,7 +86,7 @@ def training(cfg):
     os.makedirs(os.path.join(scene.model_path, "save_train"), exist_ok=True)
 
     train_cams = scene.getTrainCameras().copy()
-    train_dataset = HUGSIM_dataset(train_cams, cfg.data_type)
+    train_dataset = HUGSIM_dataset(train_cams)
     train_dataloader = DataLoader(train_dataset, batch_size=1, shuffle=True, pin_memory=True, collate_fn=hugsim_collate)
 
     for iteration in range(first_iter, cfg.train.iterations + 1):        
@@ -314,12 +321,12 @@ def validation(iteration, scene, renderFunc, renderArgs):
 def main():
     parser = ArgumentParser(description="Training script parameters")
     parser.add_argument("--base_cfg", type=str, default="./configs/gs_base.yaml")
-    parser.add_argument("--data_cfg", type=str, default="./configs/nusc.yaml")
+    parser.add_argument("--train_cfg", type=str, default="./configs/train.yaml")
     parser.add_argument("--source_path", type=str, default="")
     parser.add_argument("--model_path", type=str, default="")
     parser.add_argument("--resume_iteration", type=int, default=0)
     args = parser.parse_args()
-    cfg = OmegaConf.merge(OmegaConf.load(args.base_cfg), OmegaConf.load(args.data_cfg))
+    cfg = OmegaConf.merge(OmegaConf.load(args.base_cfg), OmegaConf.load(args.train_cfg))
     if len(args.source_path) > 0:
         cfg.source_path = args.source_path
     if len(args.model_path) > 0:

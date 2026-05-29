@@ -43,7 +43,6 @@ if __name__ == "__main__":
                 "model_path": output_scene_path,
                 "source_path": cfg_dict["source_path"],
                 "affine": True,
-                "data_type": dataset,
                 "model": {
                     "sh_degree": cfg_dict["sh_degree"],
                     "data_device": cfg_dict["data_device"],

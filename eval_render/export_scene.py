@@ -113,10 +113,14 @@ def export_single_scene(input_path, output_path, iteration, from_ver0):
         pass
     
     # copy metadata
-    try:
-        shutil.copy(os.path.join(input_path, "meta_data.json"), os.path.join(output_path, "meta_data.json"))
-    except shutil.SameFileError:
-        pass
+    for filename in ("meta_data.json", "camera_paras.json", "geo_reference.json"):
+        src = os.path.join(input_path, filename)
+        if not os.path.exists(src):
+            continue
+        try:
+            shutil.copy(src, os.path.join(output_path, filename))
+        except shutil.SameFileError:
+            pass
     
     
 

@@ -1,4 +1,11 @@
 import os
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from utils.model_cache import configure_model_cache
 
 configure_model_cache()
@@ -6,7 +13,6 @@ configure_model_cache()
 import torch
 from utils.loss_utils import l1_loss, ssim_loss
 from gaussian_renderer import render_ground
-import sys
 from scene.ground_model import GroundModel 
 import uuid
 from torchmetrics.image import PeakSignalNoiseRatio
@@ -45,9 +51,9 @@ def training(cfg):
     if cfg.semantic:
         semantic_ce = CrossEntropyLoss()
     
-    train_cams, test_cams, _ = load_cameras(cfg, cfg.data_type, True)
-    train_dataset = HUGSIM_dataset(train_cams, cfg.data_type)
-    test_dataset = HUGSIM_dataset(test_cams, cfg.data_type)
+    train_cams, test_cams, _ = load_cameras(cfg, True)
+    train_dataset = HUGSIM_dataset(train_cams)
+    test_dataset = HUGSIM_dataset(test_cams)
     train_dataloader = DataLoader(train_dataset, batch_size=1, shuffle=True, pin_memory=True, collate_fn=hugsim_collate)
     test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, pin_memory=True, collate_fn=hugsim_collate)
 
@@ -230,11 +236,11 @@ def validation(iteration, model_path, gaussians, train_cameras, test_cameras, re
 def main():
     parser = ArgumentParser(description="Training script parameters")
     parser.add_argument("--base_cfg", type=str, default="./configs/gs_base.yaml")
-    parser.add_argument("--data_cfg", type=str, default="./configs/nusc.yaml")
+    parser.add_argument("--train_cfg", type=str, default="./configs/train.yaml")
     parser.add_argument("--source_path", type=str, default="")
     parser.add_argument("--model_path", type=str, default="")
     args = parser.parse_args()
-    cfg = OmegaConf.merge(OmegaConf.load(args.base_cfg), OmegaConf.load(args.data_cfg))
+    cfg = OmegaConf.merge(OmegaConf.load(args.base_cfg), OmegaConf.load(args.train_cfg))
     if len(args.source_path) > 0:
         cfg.source_path = args.source_path
     if len(args.model_path) > 0:
