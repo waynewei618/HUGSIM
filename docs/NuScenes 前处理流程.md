@@ -30,6 +30,16 @@ scene-0038
 /workspace/data/HUGSIM/nusc/scene-0038
 ```
 
+`data/nusc/run.sh` 默认从统一资源目录派生路径：
+
+```bash
+export HUGSIM_RESOURCE_DIR=/workspace/data
+export NUSC_SEQ=scene-0038
+export NUSC_VERSION=interp_12Hz_trainval
+```
+
+默认输入为 `${HUGSIM_RESOURCE_DIR}/NuScenes`，默认输出为 `${HUGSIM_RESOURCE_DIR}/HUGSIM/nusc/${NUSC_SEQ}`。如需单独覆盖，可使用 `NUSC_BASE_DIR`、`NUSC_OUT`、`NUSC_SEQ_LIST`。
+
 ## 模型权重
 
 本流程会读取以下模型权重：

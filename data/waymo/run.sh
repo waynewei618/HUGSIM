@@ -4,12 +4,14 @@ set -euo pipefail
 cuda=${CUDA_VISIBLE_DEVICES:-0}
 export CUDA_VISIBLE_DEVICES=$cuda
 
-base_dir=${WAYMO_BASE_DIR:-"/workspace/data/waymo"}
+resource_dir=${HUGSIM_RESOURCE_DIR:-"/workspace/data"}
+base_dir=${WAYMO_BASE_DIR:-"${resource_dir}/waymo"}
 segment=${WAYMO_SEGMENT:-"segment-16801666784196221098_2480_000_2500_000_with_camera_labels.tfrecord"}
 
 seg_prefix=$(echo $segment| cut -c 9-15)
 seq_name=${seg_prefix}
-out=${WAYMO_OUT:-"/workspace/HUGSIM/outputs/waymo/$seq_name"}
+out_root=${HUGSIM_OUTPUT_DIR:-"${resource_dir}/HUGSIM"}
+out=${WAYMO_OUT:-"${out_root}/waymo/$seq_name"}
 cameras="1 2 3"
 
 if [ ! -f "${base_dir}/${segment}" ]; then
@@ -17,17 +19,17 @@ if [ ! -f "${base_dir}/${segment}" ]; then
     exit 1
 fi
 
-mkdir -p $out
+mkdir -p "$out"
 
 # load images, camera pose, etc
-python waymo/load.py -b ${base_dir} -c ${cameras} -o ${out} -s ${segment}
+python waymo/load.py -b "${base_dir}" -c ${cameras} -o "${out}" -s "${segment}"
 
 # generate semantic mask
 cd InverseForm
-./infer_waymo.sh ${cuda} ${out}
+./infer_waymo.sh "${cuda}" "${out}"
 cd -
 
-python utils/create_dynamic_mask.py --data_path ${out} --data_type waymo
-python utils/estimate_depth.py --out ${out}
-python utils/merge_depth_wo_ground.py --out ${out} --total 200000
-python utils/merge_depth_ground.py --out ${out} --total 200000 --datatype waymo
+python utils/create_dynamic_mask.py --data_path "${out}" --data_type waymo
+python utils/estimate_depth.py --out "${out}"
+python utils/merge_depth_wo_ground.py --out "${out}" --total 200000
+python utils/merge_depth_ground.py --out "${out}" --total 200000 --datatype waymo

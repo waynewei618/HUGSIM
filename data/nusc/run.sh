@@ -2,25 +2,31 @@
 
 export PYTHONPATH="${PWD}:$PYTHONPATH"
 
-cuda=4
-data='/nas/datasets/nuScenes/raw/Trainval'
-version='interp_12Hz_trainval'
+resource_dir=${HUGSIM_RESOURCE_DIR:-"/workspace/data"}
+cuda=${CUDA_VISIBLE_DEVICES:-0}
+data=${NUSC_BASE_DIR:-"${resource_dir}/NuScenes"}
+version=${NUSC_VERSION:-"interp_12Hz_trainval"}
+start=${NUSC_START:-0}
+end=${NUSC_END:-180}
+out_root=${HUGSIM_OUTPUT_DIR:-"${resource_dir}/HUGSIM"}
+seq_list=${NUSC_SEQ_LIST:-${NUSC_SEQ:-"scene-0038"}}
 
-# seq_list=('scene-0411' 'scene-0064' 'scene-0038' 'scene-0013')
-seq_list=('scene-0038' )
-for seq in "${seq_list[@]}"; do
+if [ ! -d "${data}/${version}" ]; then
+        echo "NuScenes version not found: ${data}/${version}" >&2
+        exit 1
+fi
+
+for seq in ${(z)seq_list}; do
         echo $seq
-        start=0
-        end=180
-        out=/data1/hyzhou/data/HUGSIM/release/nusc/${seq}
+        out=${NUSC_OUT:-"${out_root}/nusc/${seq}"}
 
         export CUDA_VISIBLE_DEVICES=$cuda
 
         mkdir -p ${out}
-        python nusc/load.py --datapath ${data} --version ${version} --seq ${seq} --out ${out} \
-                --start ${start} --end ${end} --downsample 2 --video
+        python nusc/load.py --datapath "${data}" --version "${version}" --seq "${seq}" --out "${out}" \
+                --start "${start}" --end "${end}" --downsample 2 --video
 
-        python utils/vis_bbox_2d.py --out ${out}
+        python utils/vis_bbox_2d.py --out "${out}"
         
         # # generate semantic mask
         # cd InverseForm

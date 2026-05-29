@@ -6,9 +6,18 @@
 
 - 原始数据集路径：`/workspace/data/pandaset`
 - 本次跑通的场景：`001`
-- 输出路径：`/workspace/HUGSIM/outputs/pandaset/001`
+- 输出路径：`/workspace/data/HUGSIM/pandaset/001`
 - InverseForm 语义分割权重：`/workspace/HUGSIM/checkpoints/hrnet48_OCR_HMS_IF_checkpoint.pth`
 - UniDepth 权重目录：`/workspace/HUGSIM/checkpoints/unidepth-v2-vitl14`
+
+`data/panda/run.sh` 默认从统一资源目录派生路径：
+
+```bash
+export HUGSIM_RESOURCE_DIR=/workspace/data
+export PANDASET_SEQ=001
+```
+
+默认输入为 `${HUGSIM_RESOURCE_DIR}/pandaset`，默认输出为 `${HUGSIM_RESOURCE_DIR}/HUGSIM/pandaset/${PANDASET_SEQ}`。如需单独覆盖，可使用 `PANDASET_BASE_DIR`、`PANDASET_OUT`。
 
 运行前确认 PandaSet devkit 可导入：
 
@@ -29,7 +38,7 @@ PY
 pixi run python data/panda/load.py \
   --datapath /workspace/data/pandaset \
   --seq 001 \
-  --out /workspace/HUGSIM/outputs/pandaset/001 \
+  --out /workspace/data/HUGSIM/pandaset/001 \
   --downsample 2 \
   --video
 ```
@@ -48,7 +57,7 @@ pixi run python data/panda/load.py \
 cd /workspace/HUGSIM/data/InverseForm
 INVERSEFORM_MODEL_PATH=/workspace/HUGSIM/checkpoints/hrnet48_OCR_HMS_IF_checkpoint.pth \
 INVERSEFORM_BATCH_SIZE=4 \
-pixi run ./infer_pandaset.sh 0 /workspace/HUGSIM/outputs/pandaset/001
+pixi run ./infer_pandaset.sh 0 /workspace/data/HUGSIM/pandaset/001
 ```
 
 两张 GPU 都空闲时，可以把相机拆成两组并行跑。两个 `torchrun` 需要使用不同端口：
@@ -58,8 +67,8 @@ cd /workspace/HUGSIM/data/InverseForm
 
 for cam in front front_left front_right; do
   CUDA_VISIBLE_DEVICES=0 pixi run torchrun --master_port 29500 --nproc_per_node=1 validation.py \
-    --input_dir /workspace/HUGSIM/outputs/pandaset/001/images/${cam}_camera \
-    --output_dir /workspace/HUGSIM/outputs/pandaset/001/semantics/${cam}_camera \
+    --input_dir /workspace/data/HUGSIM/pandaset/001/images/${cam}_camera \
+    --output_dir /workspace/data/HUGSIM/pandaset/001/semantics/${cam}_camera \
     --model_path /workspace/HUGSIM/checkpoints/hrnet48_OCR_HMS_IF_checkpoint.pth \
     --arch ocrnet.HRNet_Mscale --hrnet_base 48 --has_edge True --batch_size 6
 done
@@ -70,8 +79,8 @@ cd /workspace/HUGSIM/data/InverseForm
 
 for cam in left right back; do
   CUDA_VISIBLE_DEVICES=1 pixi run torchrun --master_port 29501 --nproc_per_node=1 validation.py \
-    --input_dir /workspace/HUGSIM/outputs/pandaset/001/images/${cam}_camera \
-    --output_dir /workspace/HUGSIM/outputs/pandaset/001/semantics/${cam}_camera \
+    --input_dir /workspace/data/HUGSIM/pandaset/001/images/${cam}_camera \
+    --output_dir /workspace/data/HUGSIM/pandaset/001/semantics/${cam}_camera \
     --model_path /workspace/HUGSIM/checkpoints/hrnet48_OCR_HMS_IF_checkpoint.pth \
     --arch ocrnet.HRNet_Mscale --hrnet_base 48 --has_edge True --batch_size 6
 done
@@ -92,7 +101,7 @@ export INVERSEFORM_SAVE_DEBUG=1
 ```bash
 cd /workspace/HUGSIM
 pixi run python data/utils/create_dynamic_mask.py \
-  --data_path /workspace/HUGSIM/outputs/pandaset/001 \
+  --data_path /workspace/data/HUGSIM/pandaset/001 \
   --data_type pandaset
 ```
 
@@ -108,7 +117,7 @@ pixi run python data/utils/create_dynamic_mask.py \
 ```bash
 cd /workspace/HUGSIM
 CUDA_VISIBLE_DEVICES=0 HUGSIM_DISABLE_XFORMERS=1 pixi run python data/utils/estimate_depth.py \
-  --out /workspace/HUGSIM/outputs/pandaset/001
+  --out /workspace/data/HUGSIM/pandaset/001
 ```
 
 输出为：
@@ -120,14 +129,14 @@ CUDA_VISIBLE_DEVICES=0 HUGSIM_DISABLE_XFORMERS=1 pixi run python data/utils/esti
 ```bash
 cd /workspace/HUGSIM
 pixi run python data/utils/merge_depth_wo_ground.py \
-  --out /workspace/HUGSIM/outputs/pandaset/001 \
+  --out /workspace/data/HUGSIM/pandaset/001 \
   --total 200000
 ```
 
 ```bash
 cd /workspace/HUGSIM
 pixi run python data/utils/merge_depth_ground.py \
-  --out /workspace/HUGSIM/outputs/pandaset/001 \
+  --out /workspace/data/HUGSIM/pandaset/001 \
   --total 200000 \
   --datatype pandaset
 ```
@@ -142,7 +151,7 @@ pixi run python data/utils/merge_depth_ground.py \
 场景 `001` 预期每个相机各 80 帧：
 
 ```bash
-out=/workspace/HUGSIM/outputs/pandaset/001
+out=/workspace/data/HUGSIM/pandaset/001
 
 for root in images semantics masks depth; do
   echo "${root}"

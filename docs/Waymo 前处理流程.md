@@ -12,9 +12,10 @@
 /workspace/data/waymo/segment-16801666784196221098_2480_000_2500_000_with_camera_labels.tfrecord
 ```
 
-`data/waymo/run.sh` 默认读取：
+`data/waymo/run.sh` 默认从统一资源目录读取：
 
 ```bash
+HUGSIM_RESOURCE_DIR=/workspace/data
 WAYMO_BASE_DIR=/workspace/data/waymo
 WAYMO_SEGMENT=segment-16801666784196221098_2480_000_2500_000_with_camera_labels.tfrecord
 ```
@@ -22,15 +23,15 @@ WAYMO_SEGMENT=segment-16801666784196221098_2480_000_2500_000_with_camera_labels.
 脚本会根据 segment 名称截取 `1680166` 作为默认序列名，默认输出到：
 
 ```bash
-/workspace/HUGSIM/outputs/waymo/1680166
+/workspace/data/HUGSIM/waymo/1680166
 ```
 
 如需处理其他 segment，可通过环境变量覆盖路径：
 
 ```bash
-export WAYMO_BASE_DIR=/workspace/data/waymo
+export HUGSIM_RESOURCE_DIR=/workspace/data
 export WAYMO_SEGMENT=<your_segment>.tfrecord
-export WAYMO_OUT=/workspace/HUGSIM/outputs/waymo/<seq_name>
+export WAYMO_OUT=/workspace/data/HUGSIM/waymo/<seq_name>
 ```
 
 ## 模型权重
@@ -57,9 +58,9 @@ bash waymo/run.sh
 ```bash
 cd /workspace/HUGSIM/data
 CUDA_VISIBLE_DEVICES=0 \
-WAYMO_BASE_DIR=/workspace/data/waymo \
+HUGSIM_RESOURCE_DIR=/workspace/data \
 WAYMO_SEGMENT=segment-16801666784196221098_2480_000_2500_000_with_camera_labels.tfrecord \
-WAYMO_OUT=/workspace/HUGSIM/outputs/waymo/1680166 \
+WAYMO_OUT=/workspace/data/HUGSIM/waymo/1680166 \
 bash waymo/run.sh
 ```
 
@@ -77,7 +78,7 @@ bash waymo/run.sh
 本次输出目录为：
 
 ```bash
-/workspace/HUGSIM/outputs/waymo/1680166
+/workspace/data/HUGSIM/waymo/1680166
 ```
 
 主要内容：
@@ -118,7 +119,7 @@ export WAYMO_SEGMENT=<segment_filename>
 export WAYMO_OUT=<output_dir>
 ```
 
-这些变量分别覆盖输入目录、segment 文件名和输出目录。
+`HUGSIM_RESOURCE_DIR` 可统一指定资源根目录；`WAYMO_BASE_DIR`、`WAYMO_SEGMENT`、`WAYMO_OUT` 分别覆盖输入目录、segment 文件名和输出目录。
 
 ## 后续训练
 
