@@ -20,9 +20,11 @@ for path in (LOADER_ROOT, DATA_ROOT):
         sys.path.insert(0, path)
 
 from common import (  # noqa: E402
+    BOX_DRAW_INTERVAL,
     append_video_frame,
     build_final_intrinsic,
     crop_and_downsample_image,
+    draw_dynamic_boxes,
     init_output_dirs,
     invert_transform,
     write_camera_paras,
@@ -237,7 +239,12 @@ def main():
         frame_video_images = {}
         for cam in AVAILABLE_CAMERAS:
             sample_data = nusc.get("sample_data", sample["data"][cam])
-            im, _, _, _, _ = load_camera_image(
+            calibrated_cam_data = nusc.get("calibrated_sensor", sample_data["calibrated_sensor_token"])
+            camera_to_ego = _rotation_translation_to_pose(
+                calibrated_cam_data["rotation"],
+                calibrated_cam_data["translation"],
+            )
+            im, _, _, _, intrinsic = load_camera_image(
                 nusc,
                 sample_data,
                 args.datapath,
@@ -252,6 +259,10 @@ def main():
                 instance_token: {"object_to_ego": (global_to_ego @ object_to_global).tolist()}
                 for instance_token, object_to_global in dynamics.items()
             }
+            if frame_idx % BOX_DRAW_INTERVAL == 0:
+                box_img = im.copy()
+                draw_dynamic_boxes(box_img, intrinsic, camera_to_ego, frame_dynamics, meta_data["verts"])
+                cv2.imwrite(os.path.join(outdir, "box", cam, im_name), box_img)
 
             timestamp = sample["timestamp"] / 1e6
             if start_time < 0:

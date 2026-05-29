@@ -16,11 +16,13 @@ if LOADER_ROOT not in sys.path:
     sys.path.insert(0, LOADER_ROOT)
 
 from common import (  # noqa: E402
+    BOX_DRAW_INTERVAL,
     FRONT_CAMERA,
     WAYMO_CAMERA_MAP,
     append_video_frame,
     build_final_intrinsic,
     crop_and_downsample_image,
+    draw_dynamic_boxes,
     init_output_dirs,
     invert_transform,
     make_intrinsic_matrix,
@@ -269,6 +271,25 @@ def main():
 
         if seq_visible:
             verts[dynamic_id] = points.tolist()
+
+    for frame_idx in range(len(intr[1])):
+        if frame_idx % BOX_DRAW_INTERVAL != 0:
+            continue
+        for source_camera in source_cameras:
+            canonical_camera = WAYMO_CAMERA_MAP[source_camera]
+            im_name = f"{frame_idx:06d}.png"
+            image_path = os.path.join(outdir, "images", canonical_camera, im_name)
+            box_img = cv2.imread(image_path)
+            if box_img is None:
+                raise FileNotFoundError(image_path)
+            draw_dynamic_boxes(
+                box_img,
+                intr[source_camera][frame_idx],
+                camera_to_ego[source_camera],
+                rts.get(frame_idx, {}),
+                verts,
+            )
+            cv2.imwrite(os.path.join(outdir, "box", canonical_camera, im_name), box_img)
 
     meta_data = {
         "camera_model": "OPENCV",

@@ -18,10 +18,12 @@ for path in (LOADER_ROOT, DATA_ROOT):
         sys.path.insert(0, path)
 
 from common import (  # noqa: E402
+    BOX_DRAW_INTERVAL,
     PANDASET_CAMERA_MAP,
     append_video_frame,
     build_final_intrinsic,
     crop_and_downsample_image,
+    draw_dynamic_boxes,
     init_output_dirs,
     invert_transform,
     make_intrinsic_matrix,
@@ -218,6 +220,7 @@ def main():
     start_timestamp = None
     first_intrinsics = {}
     first_image_sizes = {}
+    image_names = {}
 
     for frame_idx in tqdm(range(PANDASET_SEQ_LEN)):
         frame_video_images = {}
@@ -238,6 +241,7 @@ def main():
                 first_image_sizes[source_camera] = (height, width)
 
             cv2.imwrite(os.path.join(outdir, "images", canonical_camera, im_name), im)
+            image_names[(frame_idx, source_camera)] = im_name
             meta_data["frames"].append(
                 {
                     "rgb_path": os.path.join("./images", canonical_camera, im_name),
@@ -253,6 +257,27 @@ def main():
         if not args.no_video:
             append_video_frame(video_images, frame_video_images, image_size=(384, 216))
 
+    def write_box_images(frame_idx, global_to_ego, frame_dynamic_boxes, frame_verts):
+        if frame_idx % BOX_DRAW_INTERVAL != 0:
+            return
+        for source_camera in SOURCE_CAMERAS:
+            canonical_camera = PANDASET_CAMERA_MAP[source_camera]
+            im_name = image_names[(frame_idx, source_camera)]
+            image_path = os.path.join(outdir, "images", canonical_camera, im_name)
+            box_img = cv2.imread(image_path)
+            if box_img is None:
+                raise FileNotFoundError(image_path)
+            camera_to_global = _pandaset_pose_to_matrix(sequence.camera[source_camera].poses[frame_idx])
+            camera_to_ego = global_to_ego @ camera_to_global
+            draw_dynamic_boxes(
+                box_img,
+                first_intrinsics[source_camera],
+                camera_to_ego,
+                frame_dynamic_boxes,
+                frame_verts,
+            )
+            cv2.imwrite(os.path.join(outdir, "box", canonical_camera, im_name), box_img)
+
     cuboids = {}
     for frame_idx in tqdm(range(PANDASET_SEQ_LEN)):
         curr_cuboids = sequence.cuboids[frame_idx]
@@ -262,6 +287,7 @@ def main():
         valid_mask = (~curr_cuboids["stationary"]) & is_allowed_class
         curr_cuboids = curr_cuboids[valid_mask]
         if not len(curr_cuboids):
+            write_box_images(frame_idx, global_to_ego, {}, {})
             continue
 
         uuids = np.array(curr_cuboids["uuid"])
@@ -288,17 +314,25 @@ def main():
             ]
         ).T
 
+        frame_dynamic_boxes = {}
+        frame_verts = {}
         for cuboid_index in range(len(uuids)):
+            uuid = uuids[cuboid_index]
+            vertices = get_vertices(dims[cuboid_index])
             cuboids[uuids[cuboid_index]] = {
                 "label": labels[cuboid_index],
                 "dims": dims[cuboid_index],
-                "verts": get_vertices(dims[cuboid_index]),
+                "verts": vertices,
             }
+            frame_dynamic_boxes[uuid] = {"object_to_ego": cuboid_poses[cuboid_index].tolist()}
+            frame_verts[uuid] = vertices
 
         for cuboid_index, uuid in enumerate(uuids):
             pose = {"object_to_ego": cuboid_poses[cuboid_index].tolist()}
             for camera_index in range(len(SOURCE_CAMERAS)):
                 meta_data["frames"][frame_idx * len(SOURCE_CAMERAS) + camera_index]["dynamics"][uuid] = pose
+
+        write_box_images(frame_idx, global_to_ego, frame_dynamic_boxes, frame_verts)
 
     meta_data["verts"] = {uuid: cuboid["verts"].tolist() for uuid, cuboid in cuboids.items()}
     camera_paras = collect_camera_paras(sequence, SOURCE_CAMERAS, first_intrinsics, first_image_sizes)

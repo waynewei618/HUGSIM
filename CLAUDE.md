@@ -8,10 +8,6 @@
 
 ## Domestic Download Mirrors
 
-- 下载 GitHub 或其他外网资源时，优先在 Docker 内设置本地代理：
-  `export http_proxy="http://127.0.0.1:7890"`
-  `export https_proxy="http://127.0.0.1:7890"`
-  `export ftp_proxy="http://127.0.0.1:7890"`
 - 下载 HuggingFace 权重或模型时，优先设置：
   `export HF_ENDPOINT="https://hf-mirror.com"`
 - 使用 `pip` 安装 Python 包时，优先使用清华 PyPI 源：

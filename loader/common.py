@@ -23,6 +23,28 @@ CAM_ALIGN = (
     ("CAM_BACK_RIGHT", "CAM_BACK", "CAM_BACK_LEFT"),
 )
 
+BOX_DRAW_INTERVAL = 10
+
+BOX_EDGES = (
+    (0, 1),
+    (0, 2),
+    (1, 3),
+    (2, 3),
+    (4, 5),
+    (4, 6),
+    (5, 7),
+    (6, 7),
+    (0, 5),
+    (1, 4),
+    (2, 7),
+    (3, 6),
+)
+
+BOX_FRONT_DIAGONALS = (
+    (0, 3),
+    (1, 2),
+)
+
 WAYMO_CAMERA_MAP = {
     1: "CAM_FRONT",
     2: "CAM_FRONT_LEFT",
@@ -106,14 +128,17 @@ def crop_and_downsample_image(image, crop=None, downsample=1):
 def init_output_dirs(outdir, cameras):
     os.makedirs(outdir, exist_ok=True)
     shutil.rmtree(os.path.join(outdir, "images"), ignore_errors=True)
+    shutil.rmtree(os.path.join(outdir, "box"), ignore_errors=True)
     for filename in ("cam_rigid_config.json", "camera_paras.json", "geo_reference.json"):
         try:
             os.remove(os.path.join(outdir, filename))
         except FileNotFoundError:
             pass
     os.makedirs(os.path.join(outdir, "images"), exist_ok=True)
+    os.makedirs(os.path.join(outdir, "box"), exist_ok=True)
     for camera in cameras:
         os.makedirs(os.path.join(outdir, "images", camera), exist_ok=True)
+        os.makedirs(os.path.join(outdir, "box", camera), exist_ok=True)
 
 
 def write_front_info(outdir, height, rect_mat=None):
@@ -189,6 +214,103 @@ def invert_transform(transform):
     inv[:3, :3] = transform[:3, :3].T
     inv[:3, 3] = -inv[:3, :3] @ transform[:3, 3]
     return inv
+
+
+def _projection_matrix(intrinsic):
+    intrinsic = np.asarray(intrinsic, dtype=float)
+    if intrinsic.shape == (3, 3):
+        projection = np.zeros((3, 4), dtype=float)
+        projection[:, :3] = intrinsic
+        return projection
+    if intrinsic.shape[0] >= 3 and intrinsic.shape[1] >= 4:
+        return intrinsic[:3, :4]
+    raise ValueError(f"Unsupported intrinsic shape: {intrinsic.shape}")
+
+
+def project_box_vertices(intrinsic, camera_to_ego, object_to_ego, vertices, min_depth=1e-3):
+    vertices = np.asarray(vertices, dtype=float)
+    if vertices.shape != (8, 3):
+        raise ValueError(f"Expected 8 box vertices, got shape {vertices.shape}")
+
+    camera_from_ego = invert_transform(camera_to_ego)
+    object_to_camera = camera_from_ego @ np.asarray(object_to_ego, dtype=float)
+    vertices_h = np.concatenate([vertices, np.ones((vertices.shape[0], 1), dtype=float)], axis=1)
+    camera_points = (object_to_camera @ vertices_h.T).T
+
+    depth = camera_points[:, 2]
+    if np.any(depth <= min_depth):
+        return None
+
+    screen_points = (_projection_matrix(intrinsic) @ camera_points.T).T
+    if not np.all(np.isfinite(screen_points)):
+        return None
+
+    uv = screen_points[:, :2] / screen_points[:, 2:3]
+    if not np.all(np.isfinite(uv)) or np.max(np.abs(uv)) > 1e7:
+        return None
+
+    return np.rint(uv).astype(np.int32)
+
+
+def _box_overlaps_image(points_2d, image_shape):
+    height, width = image_shape[:2]
+    x1 = np.min(points_2d[:, 0])
+    x2 = np.max(points_2d[:, 0])
+    y1 = np.min(points_2d[:, 1])
+    y2 = np.max(points_2d[:, 1])
+    return x2 >= 0 and y2 >= 0 and x1 < width and y1 < height
+
+
+def _draw_clipped_line(image, p1, p2, color, thickness):
+    height, width = image.shape[:2]
+    p1 = (int(p1[0]), int(p1[1]))
+    p2 = (int(p2[0]), int(p2[1]))
+    ok, clipped_p1, clipped_p2 = cv2.clipLine((0, 0, int(width), int(height)), p1, p2)
+    if ok:
+        cv2.line(image, clipped_p1, clipped_p2, color, thickness=thickness)
+
+
+def draw_projected_3d_box(
+    image,
+    intrinsic,
+    camera_to_ego,
+    object_to_ego,
+    vertices,
+    color=(255, 128, 128),
+    thickness=1,
+    draw_front_face=True,
+):
+    points_2d = project_box_vertices(intrinsic, camera_to_ego, object_to_ego, vertices)
+    if points_2d is None or not _box_overlaps_image(points_2d, image.shape):
+        return False
+
+    for edge in BOX_EDGES:
+        _draw_clipped_line(image, points_2d[edge[0]], points_2d[edge[1]], color, thickness)
+
+    if draw_front_face:
+        for edge in BOX_FRONT_DIAGONALS:
+            _draw_clipped_line(image, points_2d[edge[0]], points_2d[edge[1]], color, thickness)
+
+    return True
+
+
+def draw_dynamic_boxes(image, intrinsic, camera_to_ego, dynamics, verts, color=(255, 128, 128), thickness=1):
+    draw_count = 0
+    for object_id, pose in dynamics.items():
+        if object_id not in verts:
+            continue
+        object_to_ego = pose["object_to_ego"] if isinstance(pose, dict) and "object_to_ego" in pose else pose
+        if draw_projected_3d_box(
+            image,
+            intrinsic,
+            camera_to_ego,
+            object_to_ego,
+            verts[object_id],
+            color=color,
+            thickness=thickness,
+        ):
+            draw_count += 1
+    return draw_count
 
 
 def make_video_frame(frame_images, image_size=(400, 225)):

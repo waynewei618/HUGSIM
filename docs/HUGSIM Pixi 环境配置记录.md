@@ -236,7 +236,7 @@ print("pandaset import ok")
 PY
 ```
 
-如果 GitHub 连接不稳定，先按项目代理约定设置本地代理后重试；如果代理端口不可用，则取消代理后重试。该依赖只用于读取原始 PandaSet 数据并生成 `meta_data.json`、`images/` 等训练前输入。
+该依赖只用于读取原始 PandaSet 数据并生成 `meta_data.json`、`images/` 等训练前输入。
 
 验证 xFormers 编译产物与当前 CUDA/PyTorch 匹配：
 
