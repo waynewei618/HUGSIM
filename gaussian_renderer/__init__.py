@@ -130,25 +130,29 @@ def render(
     
     all_fg, prev_all_fg = [], []
     for track_id, B2W in track_dict.items():
-        w_dxyz = (B2W[:3, :3] @ dynamic_gaussians[track_id].get_xyz.T).T + B2W[:3, 3]
+        dynamic_gaussian = dynamic_gaussians[track_id]
+        dxyz = dynamic_gaussian.get_xyz
+        B2W = torch.as_tensor(B2W, dtype=dxyz.dtype, device=dxyz.device)
+        w_dxyz = (B2W[:3, :3] @ dxyz.T).T + B2W[:3, 3]
 
-        drot = roma.quat_wxyz_to_xyzw(dynamic_gaussians[track_id].get_rotation)
+        drot = roma.quat_wxyz_to_xyzw(dynamic_gaussian.get_rotation)
         drot = roma.unitquat_to_rotmat(drot)
         w_drot = roma.quat_xyzw_to_wxyz(roma.rotmat_to_unitquat(B2W[:3, :3] @ drot))
         fg = [w_dxyz, 
-            dynamic_gaussians[track_id].get_opacity, 
-            dynamic_gaussians[track_id].get_scaling, 
+            dynamic_gaussian.get_opacity, 
+            dynamic_gaussian.get_scaling, 
             w_drot,
-            # dynamic_gaussians[track_id].get_rotation,
-            dynamic_gaussians[track_id].get_features,
-            dynamic_gaussians[track_id].get_3D_features]
+            # dynamic_gaussian.get_rotation,
+            dynamic_gaussian.get_features,
+            dynamic_gaussian.get_3D_features]
             
         all_fg.append(fg)
 
         if render_optical and prev_viewpoint is not None:
             if track_id in prev_track_dict:
                 prev_B2W = prev_track_dict[track_id]
-                prev_w_dxyz = torch.mm(prev_B2W[:3, :3], dynamic_gaussians[track_id].get_xyz.T).T + prev_B2W[:3, 3]
+                prev_B2W = torch.as_tensor(prev_B2W, dtype=dxyz.dtype, device=dxyz.device)
+                prev_w_dxyz = torch.mm(prev_B2W[:3, :3], dxyz.T).T + prev_B2W[:3, 3]
                 prev_all_fg.append([prev_w_dxyz])
             else:
                 prev_all_fg.append([w_dxyz])

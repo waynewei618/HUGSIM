@@ -191,7 +191,11 @@ def readHUGSIMCameras(path, ignore_dynamic):
         dynamics = {}
         if not ignore_dynamic:
             for iid, pose in frame.get('dynamics', {}).items():
-                dynamics[iid] = torch.tensor(frame_object_to_world(frame, pose)).cuda()
+                dynamics[iid] = torch.as_tensor(
+                    frame_object_to_world(frame, pose),
+                    dtype=torch.float32,
+                    device="cuda",
+                )
             
         cam_info = CameraInfo(K=intrinsic, c2w=c2w, image=np.array(image),
                             image_path=rgb_path, image_name=image_name, height=height,
