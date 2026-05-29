@@ -9,7 +9,7 @@ except ImportError:
     from common import PROJECT_ROOT, camera_names_from_images, ensure_camera_dirs
 
 
-INVERSEFORM_DIR = PROJECT_ROOT / "data" / "InverseForm"
+INVERSEFORM_DIR = PROJECT_ROOT / "pre_train" / "InverseForm"
 DEFAULT_MODEL_PATH = PROJECT_ROOT / "checkpoints" / "hrnet48_OCR_HMS_IF_checkpoint.pth"
 
 

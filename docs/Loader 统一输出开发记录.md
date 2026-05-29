@@ -1,8 +1,8 @@
 # Loader 统一输出开发记录
 
-本文记录 2026-05-29 对 Waymo、PandaSet、NuScenes 三套 loader 的统一输出开发过程。
+本文记录 2026-05-29 对 Waymo、PandaSet、NuScenes 三套 loader 的统一输出开发过程，并合并原数据准备流程对比、三套数据集前处理记录和 NuScenes 12Hz 标注记录。
 
-目标是先完成 loader 层，不改 semantic、mask、depth、merge、训练读取等下游代码。新代码放在 `loader/` 下，旧的 `data/<dataset>/load.py` 暂时保留作为参考实现。
+当前有效流程以本文为准：原始数据先进入 `loader/` 生成统一中间格式，再由 `pre_train/` 生成训练前产物。旧 `data/<dataset>/load.py` 和 `data/utils/*.py` 中已有新实现替代的入口已删除；没有新实现替代的旧辅助脚本只保留在 `loader/*/archive/` 或 `pre_train/archive/` 作参考。
 
 ## 目标和约束
 
@@ -42,6 +42,48 @@ Waymo 当前只导出前三个相机，因此只会生成：
 images/CAM_FRONT
 images/CAM_FRONT_LEFT
 images/CAM_FRONT_RIGHT
+```
+
+## 当前数据准备主流程
+
+默认已进入 Docker 容器内的 `/workspace/HUGSIM`：
+
+```text
+原始数据
+  -> loader/<dataset>/load.py
+      -> images/CAM_*
+      -> meta_data.json
+      -> camera_paras.json
+      -> geo_reference.json
+      -> front_info.json
+      -> ground_lidar.ply
+      -> view.mp4
+  -> pre_train/run_prepare.py
+      -> semantics/
+      -> masks/
+      -> depth/
+      -> points3d.ply
+      -> ground_points3d.ply
+      -> ground_param.pkl
+```
+
+训练前处理统一运行：
+
+```bash
+HUGSIM_DISABLE_XFORMERS=1 .pixi/envs/default/bin/python pre_train/run_prepare.py \
+  --input <loader_out> \
+  --cuda 0 \
+  --total 200000
+```
+
+分步入口：
+
+```bash
+.pixi/envs/default/bin/python pre_train/infer_semantics.py --input <loader_out> --cuda 0
+.pixi/envs/default/bin/python pre_train/create_dynamic_mask.py --input <loader_out>
+HUGSIM_DISABLE_XFORMERS=1 .pixi/envs/default/bin/python pre_train/estimate_depth.py --input <loader_out>
+.pixi/envs/default/bin/python pre_train/merge_depth_wo_ground.py --input <loader_out> --total 200000
+.pixi/envs/default/bin/python pre_train/merge_depth_ground.py --input <loader_out> --total 200000
 ```
 
 ## 代码结构
@@ -106,6 +148,20 @@ PandaSet 映射：
 | `right_camera` | `CAM_BACK_RIGHT` |
 
 NuScenes 原始相机名已经是 `CAM_*`，保持不变。
+
+## 数据集对比
+
+| 数据集 | 当前入口 | 原始输入 | 当前相机输出 | 动态物体来源 | 地理锚点 |
+|---|---|---|---|---|---|
+| Waymo | `loader/waymo/load.py` | 单个 `.tfrecord` | 当前实跑 `CAM_FRONT`、`CAM_FRONT_LEFT`、`CAM_FRONT_RIGHT` | `laser_labels` | `geo_reference.available=false` |
+| PandaSet | `loader/pandaset/load.py` | PandaSet sequence | 6 个 `CAM_*` | `sequence.cuboids` | 从 `meta/gps.json` 写第 0 帧 GPS |
+| NuScenes | `loader/nuscenes/load.py` | NuScenes scene/version | 6 个 `CAM_*` | sample annotations | `geo_reference.available=false` |
+
+| 数据集 | 原始相机命名 | 统一命名 | 特殊图像处理 | 地面信息 |
+|---|---|---|---|---|
+| Waymo | `1/2/3/4/5` | `CAM_FRONT` 等 | 当前无额外 crop，只 downsample | 首帧 lidar 拟合，写 `ground_lidar.ply` 和 `front_info.json` |
+| PandaSet | `front_camera` 等 | `CAM_FRONT` 等 | `back_camera` 裁底 250 像素 | 首帧 lidar 拟合，写 `ground_lidar.ply` 和 `front_info.json` |
+| NuScenes | 已是 `CAM_*` | 保持不变 | `CAM_BACK` 裁底 80 像素 | 首帧 lidar 拟合，写 `ground_lidar.ply` 和 `front_info.json` |
 
 ## 坐标和文件约定
 
@@ -322,6 +378,8 @@ cd /workspace/HUGSIM
 
 ### NuScenes
 
+NuScenes 相机硬件为 12Hz，但官方关键帧标注为 2Hz。若要使用 12Hz 标注版本，先按本文后面的 ASAP 小节生成 `interp_12Hz_trainval`。
+
 入口：
 
 ```bash
@@ -351,6 +409,56 @@ cd /workspace/HUGSIM
   --end 180
 ```
 
+## NuScenes 12Hz 标注
+
+ASAP 只用于在 NuScenes loader 之前生成高频标注版本。它不属于 HUGSIM 主 pixi 环境。
+
+背景：
+
+- NuScenes `samples/` 是 2Hz 关键帧，`sweeps/` 已包含 12Hz 图像。
+- 缺的是非关键帧的 `sample_data` 索引和 3D 标注。
+- ASAP 通过 `sample_data.next` 链和物体轨迹插值生成 `interp_12Hz_trainval`。
+
+ASAP 环境使用独立 Conda：
+
+```bash
+conda create -n ASAP python=3.7 -y
+conda activate ASAP
+pip install nuscenes-devkit
+conda install pytorch==1.9.0 torchvision==0.10.0 cudatoolkit=11.1 -c pytorch -c conda-forge -y
+pip install mmcv-full==1.4.0 -f https://download.openmmlab.com/mmcv/dist/cu111/torch1.9.0/index.html
+```
+
+生成前把 ASAP 脚本中的 NuScenes 路径改为本机路径：
+
+```bash
+cd /workspace/HUGSIM/external/ASAP
+sed -i 's#data_path="./data/nuscenes"#data_path="/workspace/data/NuScenes"#' scripts/ann_generator.sh
+```
+
+HUGSIM 当前使用插值策略：
+
+```bash
+cd /workspace/HUGSIM/external/ASAP
+mkdir -p out/lidar_20Hz
+echo '{}' > out/lidar_20Hz/results_nusc.json
+
+conda activate ASAP
+bash scripts/ann_generator.sh 12 --ann_strategy 'interp'
+```
+
+输出目录：
+
+```text
+/workspace/data/NuScenes/interp_12Hz_trainval/
+├── sample.json
+├── sample_annotation.json
+├── sample_data.json
+└── ...
+```
+
+生成 `interp_12Hz_trainval` 后，回到 HUGSIM 主环境运行 `loader/nuscenes/load.py --version interp_12Hz_trainval`。
+
 ## 验证记录
 
 静态检查：
@@ -361,7 +469,8 @@ cd /workspace/HUGSIM
   loader/common.py \
   loader/waymo/load.py \
   loader/pandaset/load.py \
-  loader/nuscenes/load.py
+  loader/nuscenes/load.py \
+  pre_train/*.py
 ```
 
 2026-05-29 增加 `geo_reference.json`、将 frame `width/height` 移到 `camera_paras.json` 并统一最终图像内参后，上述静态检查再次通过。内参 helper 也做了最小数值检查：crop 左 10、上 20、右 30、下 40，再 downsample 2 后，`cx/cy/fx/fy/width/height` 均符合公式。
@@ -439,20 +548,47 @@ $$
 
 并使用 `camera_paras.json` 中的内参投影到图像平面。
 
+检查 loader 输出：
+
+```bash
+out=<loader_out>
+
+find "$out/images" -type f \( -name "*.jpg" -o -name "*.png" \) | wc -l
+ls -lh "$out"/meta_data.json "$out"/camera_paras.json "$out"/geo_reference.json
+ls -lh "$out"/front_info.json "$out"/ground_lidar.ply "$out"/view.mp4
+test ! -e "$out/cam_rigid_config.json"
+```
+
+检查训练前产物：
+
+```bash
+out=<loader_out>
+
+find "$out/semantics" -type f -name "*.npy" | wc -l
+find "$out/masks" -type f -name "*.npy" | wc -l
+find "$out/depth" -type f -name "*.pt" | wc -l
+ls -lh "$out"/points3d.ply "$out"/ground_points3d.ply "$out"/ground_param.pkl
+```
+
 ## 当前边界
 
-本次只完成 loader 层统一。下游仍未同步切换到新 schema，后续需要继续改：
+2026-05-29 后续开发已经完成下游切换：训练前处理集中在 `pre_train/`，训练和离线仿真准备入口集中在 `train/`。旧 `data/` 代码按替代关系清理：
 
-- `data/InverseForm/infer_waymo.sh`
-- `data/InverseForm/infer_pandaset.sh`
-- `data/InverseForm/infer_nuscenes.sh`
-- `data/utils/create_dynamic_mask.py`
-- `data/utils/estimate_depth.py`
-- `data/utils/merge_depth_wo_ground.py`
-- `data/utils/merge_depth_ground.py`
-- `scene/dataset_readers.py`
-- `utils/dynamic_utils.py`
+- `data/<dataset>/load.py` 和 `data/utils/*.py` 中已有新实现替代的入口已删除。
+- 未被新实现替代的 COLMAP、fisheye、统计和运行脚本移动到 `loader/*/archive/`、`loader/archive/` 或 `pre_train/archive/` 作为参考。
+- `data/InverseForm/` 已移动到 `pre_train/InverseForm/`，作为当前 `pre_train/infer_semantics.py` 的运行依赖。
 
-后续改下游时应以 `camera_paras.json` 和 `meta_data.frames[*].camera_name` 为准，不再从每帧读取 `intrinsics`、`camtoworld`、`width` 或 `height`。
+下游以 `camera_paras.json` 和 `meta_data.frames[*].camera_name` 为准，不再从每帧读取 `intrinsics`、`camtoworld`、`width` 或 `height`。
 
 旧输出格式不再作为新 loader 的兼容目标。如果已有旧产物需要使用统一链路，应重新运行新 loader。
+
+以下旧文档内容已经合并到本文，并以统一 loader schema 修正：
+
+- `docs/Waymo 前处理流程.md`
+- `docs/PandaSet 数据预处理.md`
+- `docs/NuScenes 前处理流程.md`
+- `docs/NuScenes 2Hz → 12Hz 标注帧率提升流程.md`
+- `docs/Waymo PandaSet NuScenes 数据准备流程对比.md`
+- `docs/数据准备流程对比.md`
+
+旧重建训练记录已删除。重建和离线仿真准备入口见 `docs/数据到训练开发记录.md` 和 `docs/HUGSIM 程序运行 Pipeline.md`。

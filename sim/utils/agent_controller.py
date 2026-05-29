@@ -7,7 +7,7 @@ import torch
 import time
 import math
 from copy import deepcopy
-from utils.dynamic_utils import unicycle
+from train.dynamic_utils import unicycle
 
 
 def constant_tracking(state, path, dt):

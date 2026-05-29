@@ -54,7 +54,11 @@ Or you can use `pixi run <command>` to run a command in the **pixi environment**
 
 # Data Preparation
 
-Please refer to [Data Preparation Document](data/README.md)
+The current data pipeline is split into `loader/` and `pre_train/`.
+Use `loader/<dataset>/load.py` to convert raw data into the unified loader output,
+then run `pre_train/run_prepare.py` on that output directory.
+See [docs/Loader 统一输出开发记录.md](docs/Loader%20统一输出开发记录.md) and
+[docs/数据到训练开发记录.md](docs/数据到训练开发记录.md) for the current commands.
 
 You can download sample data from [here](https://huggingface.co/datasets/hyzhou404/HUGSIM/tree/main/sample_data).
 
@@ -66,18 +70,18 @@ input_path=${datadir}/${seq}
 output_path=${modeldir}/${seq}
 mkdir -p ${output_path}
 CUDA_VISIBLE_DEVICES=4 \
-python -u train_ground.py --data_cfg ./configs/${dataset_name: [kitti360, waymo, nusc, pandaset]}.yaml \
-        --source_path ${input_path} --model_path ${output_path}
-CUDA_VISIBLE_DEVICES=4 \
-python -u train.py --data_cfg ./configs/${dataset_name}.yaml \
-        --source_path ${input_path} --model_path ${output_path}
+python -u train/run_reconstruction.py \
+        --train_cfg ./configs/train.yaml \
+        --source_path ${input_path} \
+        --model_path ${output_path} \
+        --cuda 4
 ```
 
 # Scene Export
 
 The reconstructed scene folders contain some information that won't be utilized during the simulation. The scenes are expected to be exported as a minimized format to facilitate easier sharing and simulation.
 ```bash
- python eval_render/export_scene.py --model_path ${recon_scene_path} --output_path ${export_path} --iteration 30000
+ python -u train/run_offline_prepare.py --model_path ${recon_scene_path} --export_path ${export_path} --iteration 30000
 ``` 
 We've made some changes in the capturing and reloading code. If you would like to convert scenes from previous version (before commit 1ca821a8) of our code, add `--ver0` in the above command. 
 

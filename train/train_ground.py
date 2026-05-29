@@ -6,12 +6,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.model_cache import configure_model_cache
+from train.model_cache import configure_model_cache
 
 configure_model_cache()
 
 import torch
-from utils.loss_utils import l1_loss, ssim_loss
+from train.loss_utils import l1_loss, ssim_loss
 from gaussian_renderer import render_ground
 from scene.ground_model import GroundModel 
 import uuid
@@ -22,7 +22,7 @@ from argparse import ArgumentParser
 from torch.nn import CrossEntropyLoss
 import json
 import torchvision
-from utils.dataset import HUGSIM_dataset, hugsim_collate, tocuda
+from train.dataset import HUGSIM_dataset, hugsim_collate, tocuda
 from torch.utils.data import DataLoader
 from scene import load_cameras
 from scene.dataset_readers import fetchPly

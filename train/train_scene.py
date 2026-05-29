@@ -6,12 +6,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.model_cache import configure_model_cache
+from train.model_cache import configure_model_cache
 
 configure_model_cache()
 
 import torch
-from utils.loss_utils import l1_loss, ssim, ssim_loss
+from train.loss_utils import l1_loss, ssim, ssim_loss
 from gaussian_renderer import render
 from scene import Scene, GaussianModel
 import uuid
@@ -23,12 +23,12 @@ from torch.nn import CrossEntropyLoss
 import json
 import pickle
 import torchvision
-from utils.dataset import HUGSIM_dataset, hugsim_collate, tocuda
+from train.dataset import HUGSIM_dataset, hugsim_collate, tocuda
 from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
 from functools import partial
 from tqdm import tqdm as std_tqdm
-from utils.dynamic_utils import create_unicycle_model
+from train.dynamic_utils import create_unicycle_model
 tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 results = {'train': {}, 'test': {}}

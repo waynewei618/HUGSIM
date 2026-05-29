@@ -14,7 +14,10 @@ except ImportError:
 
 
 sys.path.insert(0, str(PROJECT_ROOT))
-from utils.model_cache import checkpoint_path, configure_model_cache  # noqa: E402
+try:
+    from .model_cache import checkpoint_path, configure_model_cache  # noqa: E402
+except ImportError:
+    from model_cache import checkpoint_path, configure_model_cache  # noqa: E402
 
 
 configure_model_cache()

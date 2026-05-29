@@ -220,7 +220,7 @@ torch cuda available True
 
 ## PandaSet devkit
 
-PandaSet 预处理入口 `data/panda/load.py` 依赖官方 PandaSet devkit 的 `pandaset` Python 包。该包不是普通 PyPI 包名，当前应从官方 GitHub 仓库的 `python` 子目录安装：
+PandaSet loader 入口 `loader/pandaset/load.py` 依赖官方 PandaSet devkit 的 `pandaset` Python 包。该包不是普通 PyPI 包名，当前应从官方 GitHub 仓库的 `python` 子目录安装：
 
 ```bash
 pixi run python -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple \
@@ -290,7 +290,7 @@ PY
 export HUGSIM_DISABLE_XFORMERS=1
 ```
 
-这会让 `data/utils/estimate_depth.py` 禁用 UniDepth 的 xFormers 路径，回退到 PyTorch attention。该方式只用于临时绕过环境问题；正常环境应优先修复或重建 `external/xformers`。
+这会让 `pre_train/estimate_depth.py` 禁用 UniDepth 的 xFormers 路径，回退到 PyTorch attention。该方式只用于临时绕过环境问题；正常环境应优先修复或重建 `external/xformers`。
 
 ## 模型权重
 
@@ -319,7 +319,7 @@ export INVERSEFORM_DISTANCE_MODEL_PATH=/path/to/distance_measures_regressor.pth
 export UNIDEPTH_MODEL_PATH=/path/to/unidepth-v2-vitl14
 ```
 
-训练脚本和 `data/utils/estimate_depth.py` 会调用 `utils.model_cache.configure_model_cache()`，默认把 `torch.hub`、`HF_HOME`、`HF_HUB_CACHE` 和 `TRANSFORMERS_CACHE` 指向 `/workspace/HUGSIM/checkpoints/` 下的子目录。这样 LPIPS/AlexNet、HuggingFace 模型缓存不会重复下载到 home 目录。
+训练脚本和 `pre_train/estimate_depth.py` 会分别调用 `train.model_cache.configure_model_cache()`、`pre_train.model_cache.configure_model_cache()`，默认把 `torch.hub`、`HF_HOME`、`HF_HUB_CACHE` 和 `TRANSFORMERS_CACHE` 指向 `/workspace/HUGSIM/checkpoints/` 下的子目录。这样 LPIPS/AlexNet、HuggingFace 模型缓存不会重复下载到 home 目录。
 
 ## 结果
 

@@ -11,12 +11,19 @@ pixi shell
 
 ## 2. 数据准备
 
-将原始数据集转换为 HUGSIM 训练格式。
+将原始数据集先转换为统一 loader 输出，再生成训练前产物。下面以 NuScenes 为例，其它数据集使用 `loader/waymo/load.py` 或 `loader/pandaset/load.py`。
 
 ```bash
-cd data
-zsh ./nusc/run.sh      # 或 kitti360 / waymo / pandaset
-cd ..
+python loader/nuscenes/load.py \
+  --datapath ${raw_dataset_path} \
+  --version ${version} \
+  --seq ${scene_name} \
+  --out ${loader_out}
+
+HUGSIM_DISABLE_XFORMERS=1 python pre_train/run_prepare.py \
+  --input ${loader_out} \
+  --cuda 0 \
+  --total 200000
 ```
 
 ## 3. 场景重建
@@ -24,15 +31,11 @@ cd ..
 先训练地面 Gaussian，再训练完整场景。
 
 ```bash
-python train_ground.py \
-  --data_cfg ./configs/${dataset_name}.yaml \
+CUDA_VISIBLE_DEVICES=0 python -u train/run_reconstruction.py \
+  --train_cfg ./configs/train.yaml \
   --source_path ${input_path} \
-  --model_path ${output_path}
-
-python train.py \
-  --data_cfg ./configs/${dataset_name}.yaml \
-  --source_path ${input_path} \
-  --model_path ${output_path}
+  --model_path ${output_path} \
+  --cuda 0
 ```
 
 输出主要包括：
@@ -51,9 +54,9 @@ ground_param.pkl
 将训练结果整理为仿真可用的场景，并生成可视化 / GUI 配置所需文件。
 
 ```bash
-python eval_render/export_scene.py \
-  --model_path ${recon_scene_path} \
-  --output_path ${export_path} \
+python -u train/run_offline_prepare.py \
+  --model_path ${output_path} \
+  --export_path ${export_path} \
   --iteration 30000
 ```
 
@@ -68,7 +71,7 @@ ground_param.pkl
 meta_data.json
 ```
 
-然后执行 `convert_scene.py`，作为离线仿真准备的一部分：
+`run_offline_prepare.py` 会继续执行 `convert_scene.py`，作为离线仿真准备的一部分：
 
 ```bash
 python eval_render/convert_scene.py \
