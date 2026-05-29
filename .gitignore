@@ -13,6 +13,9 @@ build
 shell
 private
 apex
+
+data/resource/
+external/**/build/
 # pixi environments
 .pixi
 *.egg-info

@@ -1,5 +1,7 @@
 # HUGSIM Pixi 环境配置记录
 
+> 当前环境安装、缓存复用、锁文件和源码依赖重装规则以 `docs/pixi环境与本地缓存说明.md` 为准。本文保留最初重建过程和故障排查记录。
+
 本文记录从进入 Docker 容器 `ubuntu_dev` 开始，按项目 README 配置 HUGSIM `pixi` 环境的过程。
 
 ## 前提
@@ -106,6 +108,7 @@ pixi install
 ```
 
 这一阶段会安装 PyPI/Conda 基础依赖，并从本地 `external/` 编译源码依赖，包括 `gsplat`、`pytorch3d`、`tinycudann`、`simple-knn` 等 CUDA/C++ 扩展。
+当前规范不再要求通过注释 `pixi.toml` 后半段源码依赖来分两次安装；常规安装按锁文件一次完成主环境，`apex` 保持后置任务安装。容器内 Pixi 全局 cache root 已配置到 `/workspace/HUGSIM/data/resource/pixi-cache`，全局下载并发已配置为 `concurrency.downloads = 2`，默认 PyPI index 使用清华镜像。删除 `.pixi` 后直接 `pixi install` 会复用该缓存；源码扩展的编译中间产物保留在对应的 `external/**/build/`。
 
 如果删除 `.pixi` 后重新安装时，遇到 `kornia-rs`、`nvidia-cufft-cu11`、`nvidia-cublas-cu11`、`nvidia-cudnn-cu11`、`open3d` 等大 wheel 下载或解压超时，可以保留已下载的 pixi/uv 缓存，重新删除半成品 `.pixi` 后降低并发并拉长超时时间：
 
@@ -115,7 +118,7 @@ export UV_HTTP_TIMEOUT=1800
 export UV_HTTP_RETRIES=10
 export CUDA_VISIBLE_DEVICES=0
 export TORCH_CUDA_ARCH_LIST=8.6
-pixi install --frozen --concurrent-downloads 2
+pixi install --locked
 ```
 
 本次重建中，默认 `pixi install` 曾在 `kornia-rs==0.1.11` 和 `nvidia-cufft-cu11==10.9.0.58` 的下载/解压阶段超时；使用上述参数后安装完成。
@@ -151,7 +154,7 @@ xformers = { path = "./external/xformers", editable = false }
 默认环境恢复或校验时可使用：
 
 ```bash
-pixi install --locked
+pixi install
 ```
 
 ### 4. 安装 apex
@@ -220,7 +223,9 @@ torch cuda available True
 
 ## PandaSet devkit
 
-PandaSet loader 入口 `loader/pandaset/load.py` 依赖官方 PandaSet devkit 的 `pandaset` Python 包。该包不是普通 PyPI 包名，当前应从官方 GitHub 仓库的 `python` 子目录安装：
+PandaSet loader 入口 `loader/pandaset/load.py` 依赖官方 PandaSet devkit 的 `pandaset` Python 包。该包仍按需手动安装，不纳入当前 pixi 锁文件，避免把 devkit 的宽松旧依赖集带入主环境求解。
+
+需要运行 PandaSet loader 时安装：
 
 ```bash
 pixi run python -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple \
@@ -327,5 +332,7 @@ export UNIDEPTH_MODEL_PATH=/path/to/unidepth-v2-vitl14
 - CUDA 可用。
 - 第三方源码库已统一迁移到 `external/` Git submodule。
 - `pixi.toml` 已改为通过本地 `external/` path 依赖安装源码包。
+- 包下载和 Pixi/uv 缓存已放到 `data/resource/pixi-cache`；Pixi 下载并发设为 2；源码扩展编译缓存保留在 `external/**/build/`。
+- 已验证删除 `.pixi` 后裸 `pixi install` 可直接复用本地缓存完成安装，不重新下载或重新编译。
 - 核心源码扩展包、`apex` 和 xFormers CUDA attention 已成功导入或验证。
 - `pixi.lock` 在安装过程中被更新，属于环境解析结果。

@@ -45,7 +45,7 @@ pixi install
 pixi run install-apex
 ```
 
-For the full environment setup, including xFormers version requirements for `torch 2.4.1+cu118` / CUDA 11.8, see [docs/HUGSIM Pixi 环境配置记录.md](docs/HUGSIM%20Pixi%20环境配置记录.md).
+For the current environment setup, cache reuse rules, xFormers version requirements for `torch 2.4.1+cu118` / CUDA 11.8, and rebuild notes, see [docs/pixi环境与本地缓存说明.md](docs/pixi环境与本地缓存说明.md).
 
 Change into the **pixi environment** by using the command `pixi shell`.
 
