@@ -16,15 +16,14 @@ ninja = ">=1.11.1.4, <2"
 
 [pypi-options]
 index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
-find-links = [{ path = "data/resource/pip-wheelhouse" }]
 no-build-isolation = ["gsplat", "pytorch3d", "tinycudann", "simple-knn", "xformers"]
 
 [pypi-options.dependency-overrides]
 xformers = "*"
 
 [pypi-dependencies]
-torch = { version = "==2.4.1", index = "https://download.pytorch.org/whl/cu118" }
-torchvision = { version = "==0.19.1", index = "https://download.pytorch.org/whl/cu118"}
+torch = { path = "data/resource/torch_whl/torch-2.4.1+cu118-cp311-cp311-linux_x86_64.whl" }
+torchvision = { path = "data/resource/torch_whl/torchvision-0.19.1+cu118-cp311-cp311-linux_x86_64.whl" }
 torchmetrics = ">=1.7.1, <2"
 roma = ">=1.5.2.1, <2"
 matplotlib = ">=3.10.1, <4"
