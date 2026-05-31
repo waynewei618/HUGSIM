@@ -60,7 +60,7 @@ pixi config set --global cache.root /workspace/HUGSIM/data/resource/pixi-cache
 pixi install
 ```
 
-区别是：`source scripts/pixi_resource_env.sh` 只影响当前 shell；Pixi 全局配置写在当前容器用户的 Pixi config 里，容器重建或清理该 config 后需要重新设置。不要把配置写到 `.pixi/config.toml` 作为唯一来源，因为 `.pixi` 正是允许被删除重建的环境目录。
+区别是：`source scripts/pixi_resource_env.sh` 只影响当前 shell，并会强制把本 shell 里的 Pixi cache 指到当前项目的 `data/resource/pixi-cache`；Pixi 全局配置写在当前容器用户的 Pixi config 里，容器重建或清理该 config 后需要重新设置。不要把配置写到 `.pixi/config.toml` 作为唯一来源，因为 `.pixi` 正是允许被删除重建的环境目录。
 
 检查当前 Pixi cache 配置：
 
@@ -158,11 +158,17 @@ pixi run install-apex
 
 ```bash
 PIXI_CACHE_DIR=data/resource/pixi-cache
+PIXI_CACHE_CONDA_PACKAGES_DIR=data/resource/pixi-cache/pkgs
+PIXI_CACHE_REPODATA_DIR=data/resource/pixi-cache/repodata
+PIXI_CACHE_PYPI_WHEELS_DIR=data/resource/pixi-cache/uv-cache
+PIXI_CACHE_PYPI_MAPPING_DIR=data/resource/pixi-cache/http-cache
 PIP_CACHE_DIR=data/resource/pip-cache
-UV_CACHE_DIR=data/resource/uv-cache
+UV_CACHE_DIR=data/resource/pixi-cache/uv-cache
 PIP_FIND_LINKS=data/resource/pip-wheelhouse
 UV_FIND_LINKS=data/resource/pip-wheelhouse
 ```
+
+如果 `source` 后执行 `pixi info | grep 'Cache dir'` 仍显示 `$HOME/.cache/rattler/cache`，说明当前 shell 没有加载到本项目脚本，或加载的是旧脚本；此时 `pixi install` 不会使用 `data/resource/pixi-cache`。
 
 ## 三种不要从头来的流程
 
