@@ -53,6 +53,7 @@ environments:
       - pypi: ./external/simple-waymo-open-dataset-reader
       - pypi: ./external/tiny-cuda-nn/bindings/torch
       - pypi: ./external/trajdata
+      - pypi: ./external/xformers
       - pypi: ./sim
       - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/00/2f/804f58f0b856ab3bf21617cccf5b39206e6c4c94c2cd227bde125ea6105f/parameterized-0.9.0-py2.py3-none-any.whl
       - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/00/3b/0b776f04e364cd99e4cf152c2a9eadb5934c67c9a91429da55169a9447fd/nvidia_cudnn_cu11-9.1.0.70-py3-none-manylinux2014_x86_64.whl
@@ -98,7 +99,6 @@ environments:
       - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/2a/00/10b1f8b3885fc4add1853e9603af15c593fa0be20d37c158c4d811e868dc/dash-4.1.0-py3-none-any.whl
       - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/2a/09/f8d8f8f31e4483c10a906437b4ce31bdf3d6d417b73fe33f1a8b59e34228/einops-0.8.2-py3-none-any.whl
       - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl
-      - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/2a/5b/242c68fb8c932815f8f2beea123e6a0dae1b703d87509af28aeddbd6d59b/xformers-0.0.28.post1-cp311-cp311-manylinux_2_28_x86_64.whl
       - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/2a/7f/a946aa4f8752b37102b41e64dca18a1976ac705c3a0d1dfe74d820a02552/mistune-3.2.1-py3-none-any.whl
       - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/2c/58/ca301544e1fa93ed4f80d724bf5b194f6e4b945841c5bfd555878eea9fcb/referencing-0.37.0-py3-none-any.whl
       - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/2c/8b/90eb44a40476fa0e71e05a0283947cfd74a5d36121a11d926ad6f3193cc4/opencv_python-4.11.0.86-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
@@ -871,6 +871,12 @@ packages:
   - intervaltree ; extra == 'waymo'
   - vod-devkit==1.1.1 ; extra == 'vod'
   requires_python: '>=3.8'
+- pypi: ./external/xformers
+  name: xformers
+  requires_dist:
+  - torch>=2.4
+  - numpy
+  requires_python: '>=3.7'
 - pypi: ./sim
   name: hugsim-env
   requires_dist:
@@ -1653,15 +1659,6 @@ packages:
   - socksio==1.* ; extra == 'socks'
   - zstandard>=0.18.0 ; extra == 'zstd'
   requires_python: '>=3.8'
-- pypi: https://pypi.tuna.tsinghua.edu.cn/packages/2a/5b/242c68fb8c932815f8f2beea123e6a0dae1b703d87509af28aeddbd6d59b/xformers-0.0.28.post1-cp311-cp311-manylinux_2_28_x86_64.whl
-  name: xformers
-  version: 0.0.28.post1
-  sha256: 33f594c01d0a803a782eac5a1824ed7631baf15cfa2d34400013b2976913dd27
-  index: https://pypi.tuna.tsinghua.edu.cn/simple
-  requires_dist:
-  - numpy
-  - torch==2.4.1
-  requires_python: '>=3.7'
 - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/2a/7f/a946aa4f8752b37102b41e64dca18a1976ac705c3a0d1dfe74d820a02552/mistune-3.2.1-py3-none-any.whl
   name: mistune
   version: 3.2.1

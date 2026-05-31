@@ -19,7 +19,7 @@ index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 no-build-isolation = ["gsplat", "pytorch3d", "tinycudann", "simple-knn", "xformers"]
 
 [pypi-options.dependency-overrides]
-xformers = "*"
+xformers = { path = "./external/xformers" }
 
 [pypi-dependencies]
 torch = { path = "data/resource/torch_whl/torch-2.4.1+cu118-cp311-cp311-linux_x86_64.whl" }

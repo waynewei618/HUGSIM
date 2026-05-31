@@ -78,7 +78,8 @@ index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 no-build-isolation = ["gsplat", "pytorch3d", "tinycudann", "simple-knn", "xformers"]
 
 [pypi-options.dependency-overrides]
-xformers = "*"
+xformers = { path = "./external/xformers" }
+
 ```
 
 `ninja` 放在 Conda 依赖中，供 CUDA/C++ 源码扩展构建使用；普通 Python 包保留在 `[pypi-dependencies]`；本地源码包集中放在 `# install from source code` 后面的 path 依赖区。
@@ -107,7 +108,7 @@ nuscenes-devkit = { path = "./external/nuscenes-devkit", editable = false }
 xformers = { path = "./external/xformers", editable = false }
 ```
 
-`external/UniDepth/requirements.txt` 会声明 `xformers>=0.0.26`，但 `xformers` 在本项目中由 `pixi.toml` 显式指定为 `external/xformers` 本地源码路径。`dependency-overrides` 中的 `xformers = "*"` 用于让 Pixi/uv 忽略 UniDepth 传递依赖里的版本范围，直接采用项目显式声明的本地 `external/xformers`，否则 `pixi install --locked` 可能把本地 path 包视为 `0a0.dev0` 并误判锁文件过期。
+`external/UniDepth/requirements.txt` 会声明 `xformers>=0.0.26`，但 `xformers` 在本项目中由 `pixi.toml` 显式指定为 `external/xformers` 本地源码路径。`dependency-overrides` 也必须指向同一个本地路径，否则 Pixi 可能改选 PyPI 上的预编译 xFormers wheel，导致 CUDA/PyTorch 版本与本项目的本地 torch wheel 不匹配。
 
 ## 安装流程
 
