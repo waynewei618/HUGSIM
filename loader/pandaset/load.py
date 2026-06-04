@@ -10,10 +10,11 @@ import numpy as np
 import open3d as o3d
 from tqdm import tqdm
 
-LOADER_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+PANDASET_LOADER_ROOT = os.path.abspath(os.path.dirname(__file__))
+LOADER_ROOT = os.path.abspath(os.path.join(PANDASET_LOADER_ROOT, ".."))
 PROJECT_ROOT = os.path.abspath(os.path.join(LOADER_ROOT, ".."))
 DATA_ROOT = os.path.join(PROJECT_ROOT, "data")
-for path in (LOADER_ROOT, DATA_ROOT):
+for path in (PANDASET_LOADER_ROOT, LOADER_ROOT, DATA_ROOT):
     if path not in sys.path:
         sys.path.insert(0, path)
 
@@ -31,13 +32,22 @@ from common import (  # noqa: E402
     write_front_info,
     write_geo_reference,
 )
-from panda.utils import (  # noqa: E402
-    ALLOWED_NONRIGID_CLASSES,
-    ALLOWED_RIGID_CLASSES,
-    _pandaset_pose_to_matrix,
-    _yaw_to_rotation_matrix,
-    get_vertices,
-)
+try:
+    from .pandaset_utils import (  # noqa: E402
+        ALLOWED_NONRIGID_CLASSES,
+        ALLOWED_RIGID_CLASSES,
+        _pandaset_pose_to_matrix,
+        _yaw_to_rotation_matrix,
+        get_vertices,
+    )
+except ImportError:
+    from pandaset_utils import (  # noqa: E402
+        ALLOWED_NONRIGID_CLASSES,
+        ALLOWED_RIGID_CLASSES,
+        _pandaset_pose_to_matrix,
+        _yaw_to_rotation_matrix,
+        get_vertices,
+    )
 
 
 PANDASET_SEQ_LEN = 80
