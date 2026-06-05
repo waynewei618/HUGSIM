@@ -60,6 +60,19 @@ python -u train/run_offline_prepare.py \
   --iteration 30000
 ```
 
+如果需要从 loader 输出一键执行 `pre_train`、场景重建和离线仿真准备，可使用根目录脚本：
+
+```bash
+bash run_pipeline.sh \
+  --input ${loader_out} \
+  --output ${output_path} \
+  --export ${export_path} \
+  --cuda 0 \
+  --iteration 30000
+```
+
+未显式指定 `--output` 和 `--export` 时，脚本默认在输入目录同级生成 `${输入目录名}_train` 和 `${输入目录名}_export`。
+
 导出后的场景包含：
 
 ```text
