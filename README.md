@@ -57,6 +57,7 @@ Or you can use `pixi run <command>` to run a command in the **pixi environment**
 The current data pipeline is split into `loader/` and `pre_train/`.
 Use `loader/<dataset>/load.py` to convert raw data into the unified loader output,
 then run `pre_train/run_prepare.py` on that output directory.
+The ME dataset is supported through `loader/me/resplit_subscenes.py` followed by `loader/me/load.py`.
 See [docs/Loader 统一输出开发记录.md](docs/Loader%20统一输出开发记录.md) and
 [docs/数据到训练开发记录.md](docs/数据到训练开发记录.md) for the current commands.
 

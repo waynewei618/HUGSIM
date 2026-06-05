@@ -11,7 +11,7 @@ pixi shell
 
 ## 2. 数据准备
 
-将原始数据集先转换为统一 loader 输出，再生成训练前产物。下面以 NuScenes 为例，其它数据集使用 `loader/waymo/load.py` 或 `loader/pandaset/load.py`。
+将原始数据集先转换为统一 loader 输出，再生成训练前产物。下面以 NuScenes 为例，其它数据集使用 `loader/waymo/load.py`、`loader/pandaset/load.py` 或 `loader/me/load.py`。ME 数据集需要先运行 `loader/me/resplit_subscenes.py` 生成 resplit sub-scene，再对单个 sub-scene 执行 loader。
 
 ```bash
 python loader/nuscenes/load.py \
@@ -24,6 +24,25 @@ HUGSIM_DISABLE_XFORMERS=1 python pre_train/run_prepare.py \
   --input ${loader_out} \
   --cuda 0 \
   --total 200000
+```
+
+ME 示例：
+
+```bash
+python loader/me/resplit_subscenes.py \
+  -s 20250317_161633_1 \
+  --data-root /mnt/compute-data/e2e/me \
+  --output-root outputs/me/resplit \
+  --max-frames 150 \
+  --max-distance 200 \
+  --overlap-frames 0 \
+  --min-distance 0.05 \
+  --overwrite
+
+python loader/me/load.py \
+  --datapath outputs/me/resplit \
+  --seq 20250317_161633_1_200m \
+  --sub-scene 1
 ```
 
 ## 3. 场景重建

@@ -1,5 +1,14 @@
 # AGENTS.md instructions for /home/sil/workspace/HUGSIM
 
+## ME 数据集适配约定
+
+- 当前主要目标是适配 `me` 数据集。
+- `me` 数据集此前已适配过，参考实现位于 `/mnt/compute-home-sil/workspace/hugsim_3dgs`。
+- `me` 数据集在控制机上的路径是 `/mnt/compute-data/e2e/me`。
+- `me` 数据集在算力机上的路径是 `/data/e2e/me`。
+- 后续 `me` 数据集相关测试默认以 `20250317_161633_1` 场景作为示例场景。
+- 涉及 `me` 数据集适配逻辑、运行流程或参数说明时，优先对照上述参考目录中的已有实现。
+
 ## 语言与文档
 
 - 默认使用中文回复用户，除非用户明确要求使用英文或其他语言。

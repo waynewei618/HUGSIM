@@ -1,6 +1,6 @@
 # Loader 统一输出开发记录
 
-本文记录 2026-05-29 对 Waymo、PandaSet、NuScenes 三套 loader 的统一输出开发过程，并合并原数据准备流程对比、三套 loader 处理记录和 NuScenes 12Hz 标注记录。
+本文记录 2026-05-29 对 Waymo、PandaSet、NuScenes 三套 loader 的统一输出开发过程，并合并原数据准备流程对比、三套 loader 处理记录和 NuScenes 12Hz 标注记录。当前已新增 ME 数据集 loader；ME 需要先按 ego 轨迹重划分 sub-scene，再进入统一 loader 输出。
 
 本文只覆盖原始数据进入 `loader/` 并生成统一中间格式的阶段；后续训练前处理记录见 `docs/数据到训练开发记录.md`。旧 `data/<dataset>/load.py` 和 `data/utils/*.py` 中已有新实现替代的入口已删除；没有新实现替代的旧辅助脚本只保留在对应 `archive/` 目录作参考。
 
@@ -96,6 +96,42 @@ NuScenes：
   --end <end_frame>
 ```
 
+ME 需要先重划分，再运行 loader。控制机原始数据默认路径是 `/mnt/compute-data/e2e/me`，算力机原始数据默认路径是 `/data/e2e/me`。
+
+重划分：
+
+```bash
+.pixi/envs/default/bin/python loader/me/resplit_subscenes.py \
+  -s <scene_id> \
+  --data-root /mnt/compute-data/e2e/me \
+  --output-root outputs/me/resplit \
+  --max-frames 150 \
+  --max-distance 200 \
+  --overlap-frames 0 \
+  --min-distance 0.05 \
+  --overwrite
+```
+
+重划分输出结构：
+
+```text
+outputs/me/resplit/<scene_id>_<max_distance>m/<new_sub_scene_id>/
+```
+
+例如 `--max-distance 200` 会输出到 `outputs/me/resplit/20250317_161633_1_200m/1/`。目录名中的距离只保留米制字符串，避免路径里出现小数点。
+
+loader：
+
+```bash
+.pixi/envs/default/bin/python loader/me/load.py \
+  --datapath outputs/me/resplit \
+  --seq <scene_id>_200m \
+  --sub-scene <sub_scene_id> \
+  --downsample 2
+```
+
+未显式传 `--out` 时，ME loader 会从输入路径中删除第一个 `resplit` 段作为默认输出路径。例如输入 `outputs/me/resplit/20250317_161633_1_200m/1` 时，默认输出为 `outputs/me/20250317_161633_1_200m/1`。
+
 ## 代码结构
 
 新增和维护的 loader 文件：
@@ -103,6 +139,9 @@ NuScenes：
 ```text
 loader/
 ├── common.py
+├── me/
+│   ├── load.py
+│   └── resplit_subscenes.py
 ├── nuscenes/
 │   └── load.py
 ├── pandaset/
@@ -114,7 +153,7 @@ loader/
 `loader/common.py` 负责共享约定：
 
 - 统一相机名常量。
-- Waymo/PandaSet 到 `CAM_*` 的映射。
+- Waymo/PandaSet/ME 到 `CAM_*` 的映射。
 - 输出目录初始化，并清理旧的 `cam_rigid_config.json`。
 - `front_info.json` 写出。
 - `camera_paras.json` 写出。
@@ -159,6 +198,19 @@ PandaSet 映射：
 
 NuScenes 原始相机名已经是 `CAM_*`，保持不变。
 
+ME 映射：
+
+| 原始相机 | 统一相机 |
+|---|---|
+| `CAM_FRONT_120` | `CAM_FRONT` |
+| `CAM_FRONT_LEFT` | `CAM_FRONT_LEFT` |
+| `CAM_FRONT_RIGHT` | `CAM_FRONT_RIGHT` |
+| `CAM_BACK` | `CAM_BACK` |
+| `CAM_BACK_LEFT` | `CAM_BACK_LEFT` |
+| `CAM_BACK_RIGHT` | `CAM_BACK_RIGHT` |
+
+`camera_paras.json` 的相机 key 使用统一相机名；`source_camera_name` 保留原始相机名。例如 `CAM_FRONT` 的 `source_camera_name` 是 `CAM_FRONT_120`。
+
 ## 数据集对比
 
 | 数据集 | 当前入口 | 原始输入 | 当前相机输出 | 动态物体来源 | 地理锚点 |
@@ -166,12 +218,14 @@ NuScenes 原始相机名已经是 `CAM_*`，保持不变。
 | Waymo | `loader/waymo/load.py` | 单个 `.tfrecord` | 当前实跑 `CAM_FRONT`、`CAM_FRONT_LEFT`、`CAM_FRONT_RIGHT` | `laser_labels` | `geo_reference.available=false` |
 | PandaSet | `loader/pandaset/load.py` | PandaSet sequence | 6 个 `CAM_*` | `sequence.cuboids` | 从 `meta/gps.json` 写首帧和末帧 GPS |
 | NuScenes | `loader/nuscenes/load.py` | NuScenes scene/version | 6 个 `CAM_*` | sample annotations | `geo_reference.available=false` |
+| ME | `loader/me/resplit_subscenes.py` + `loader/me/load.py` | resplit 后的 ME sub-scene | 6 个 `CAM_*` | `annotations_info/*.json` | `geo_reference.available=false` |
 
 | 数据集 | 原始相机命名 | 统一命名 | 特殊图像处理 | 地面信息 |
 |---|---|---|---|---|
 | Waymo | `1/2/3/4/5` | `CAM_FRONT` 等 | 当前无额外 crop，只 downsample | 首帧 lidar 拟合，写 `ground_lidar.ply` 和 `front_info.json` |
 | PandaSet | `front_camera` 等 | `CAM_FRONT` 等 | `back_camera` 裁底 250 像素 | 首帧 lidar 拟合，写 `ground_lidar.ply` 和 `front_info.json` |
 | NuScenes | 已是 `CAM_*` | 保持不变 | `CAM_BACK` 裁底 80 像素 | 首帧 lidar 拟合，写 `ground_lidar.ply` 和 `front_info.json` |
+| ME | `CAM_FRONT_120` 等 | `CAM_FRONT` 等 | `CAM_FRONT_120` 裁上下和左右边，`CAM_BACK` 裁底 56 像素 | 首帧 `AT128` lidar 拟合，写 `ground_lidar.ply` 和 `front_info.json` |
 
 ## 坐标和文件约定
 
@@ -283,6 +337,8 @@ $$
 - PandaSet `back_camera`：沿用旧逻辑裁掉底部 250 像素后再 resize。
 - NuScenes `CAM_BACK`：沿用旧逻辑裁掉底部 80 像素后再 resize。
 - Waymo 当前没有额外 crop，只做 downsample。
+- ME `CAM_FRONT_120`：裁上 360 像素、裁下 520 像素，并在 downsample 后等效裁左右各 480 像素；代码中先把左右 crop 换算回原图像素，再统一调用 `build_final_intrinsic` 和 `crop_and_downsample_image`。
+- ME `CAM_BACK`：裁掉底部 56 像素。
 
 `object_to_ego` 表示动态物体局部坐标到当前帧 ego 坐标的 4x4 位姿。要把动态物体变到相机坐标，可使用：
 
@@ -291,6 +347,8 @@ T_{\text{object}\rightarrow\text{camera}}
 = T_{\text{camera}\rightarrow\text{ego}}^{-1}
   T_{\text{object}\rightarrow\text{ego}}
 $$
+
+ME 的动态物体候选类别为 `MotorVehicle`、`Pedestrian`、`TwoWheels` 和 `Tricycle`。判定是否动态时，先把标注中心从当前 ego 转到数据集 global 坐标，再按 XY 平面最大位移是否超过 1m 过滤；不能直接使用 ego 坐标下的中心位移，否则自车运动会把静态路边目标误判为动态。ME 标注中的 `PC_3D[9:12]` 速度字段在当前测试段全为 0，不作为动态判定依据。
 
 `meta_data.json` 不再保存每帧 `intrinsics`、`camtoworld`、`width` 和 `height`。需要相机 world 位姿时，由下式推导：
 
@@ -341,7 +399,7 @@ PandaSet 本地原始数据有 `meta/gps.json`，因此写出第 0 帧 GPS，并
 }
 ```
 
-Waymo 和 NuScenes 公开数据只提供数据集原生米制位姿和粗粒度地点字符串，不提供可直接使用的 first ego 经纬度，因此写：
+Waymo、NuScenes 和 ME 只提供数据集原生米制位姿或粗粒度地点信息，不提供可直接使用的 first ego 经纬度，因此写：
 
 ```json
 {
@@ -350,7 +408,7 @@ Waymo 和 NuScenes 公开数据只提供数据集原生米制位姿和粗粒度�
 }
 ```
 
-## 三套 loader 实现
+## loader 实现
 
 ### Waymo
 
@@ -409,6 +467,74 @@ cd /workspace/HUGSIM
   --datapath /workspace/data/pandaset \
   --seq 001 \
   --out /workspace/HUGSIM/outputs/loader_ego_probe_20260529_015116/pandaset_001
+```
+
+### ME
+
+ME 当前分两步处理：先在 `loader/me/resplit_subscenes.py` 中根据 ego pose 重划分 sub-scene，再由 `loader/me/load.py` 把某一个重划分后的 sub-scene 转成统一 loader 输出。
+
+入口：
+
+```bash
+loader/me/resplit_subscenes.py
+loader/me/load.py
+```
+
+重划分主要处理：
+
+- 默认原始数据根目录为 `/mnt/compute-data/e2e/me`；算力机对应路径为 `/data/e2e/me`。
+- 默认输出根目录为 `outputs/me/resplit`。
+- 新 scene 目录命名为 `<scene_id>_<max_distance>m`，例如 `20250317_161633_1_200m`。
+- 子场景目录结构为 `outputs/me/resplit/<scene_id>_<max_distance>m/<new_sub_scene_id>/`。
+- 默认 `--max-frames 150`、`--max-distance 200`、`--overlap-frames 0`、`--min-distance 0.05`。
+- 只复制源 `meta.json`、`annotations_info/*.json`、相机图像和 `AT128` lidar 文件，不修改标注、图像和点云内容。
+- 额外生成 `ego_trajectory.png` 用于检查轨迹；不生成 `ego_poses.json` 或 `odometer.json`。
+
+loader 主要处理：
+
+- `--datapath` 是 resplit 根目录，默认 `outputs/me/resplit`。
+- `--seq` 是 resplit scene 目录名，例如 `20250317_161633_1_200m`。
+- `--sub-scene` 是数字 sub-scene id，例如 `1`。
+- `--out` 可选；未传时默认删除输入路径中的 `resplit` 段，例如 `outputs/me/resplit/20250317_161633_1_200m/1` 输出为 `outputs/me/20250317_161633_1_200m/1`。
+- `CAM_FRONT_120` 输出为统一相机 `CAM_FRONT`，但 `camera_paras.json` 和 `meta_data.json` 中保留 `source_camera_name=CAM_FRONT_120`。
+- 相机内参复用 `loader/common.py` 的 `build_final_intrinsic`，图像 crop/downsample 复用 `crop_and_downsample_image`。
+- `meta_data.frames[*].ego_to_world` 使用首帧 ego pose 作为局部 world 原点，由 `meta.json` 中的 `pose[0].matrix4` 推导。
+- 动态物体输出为当前 ego 下的 `object_to_ego`，box 顶点采用统一约定：`x=length`、`y=width`、`z=height`，以 box 中心为原点。
+- 动态 track 使用 global XY 位移超过 1m 判定，避免把静态路边目标因 ego 相对运动误判为动态。
+- 写 `geo_reference.json`，`available=false`，说明 ME 只提供米制 ego pose，没有精确经纬度锚点。
+- 首帧 `AT128` lidar 地面拟合后写 `ground_lidar.ply` 和 `front_info.json`。
+- 始终生成 `view.mp4`，不提供 `--no_video`。
+
+当前默认测试场景：
+
+```bash
+scene_id=20250317_161633_1
+seq=20250317_161633_1_200m
+```
+
+重划分示例：
+
+```bash
+cd /workspace/HUGSIM
+.pixi/envs/default/bin/python loader/me/resplit_subscenes.py \
+  -s 20250317_161633_1 \
+  --data-root /mnt/compute-data/e2e/me \
+  --output-root outputs/me/resplit \
+  --max-frames 150 \
+  --max-distance 200 \
+  --overlap-frames 0 \
+  --min-distance 0.05 \
+  --overwrite
+```
+
+loader 示例：
+
+```bash
+cd /workspace/HUGSIM
+.pixi/envs/default/bin/python loader/me/load.py \
+  --datapath outputs/me/resplit \
+  --seq 20250317_161633_1_200m \
+  --sub-scene 1
 ```
 
 ### NuScenes
@@ -503,12 +629,16 @@ bash scripts/ann_generator.sh 12 --ann_strategy 'interp'
 cd /workspace/HUGSIM
 .pixi/envs/default/bin/python -m py_compile \
   loader/common.py \
+  loader/me/resplit_subscenes.py \
+  loader/me/load.py \
   loader/waymo/load.py \
   loader/pandaset/load.py \
   loader/nuscenes/load.py
 ```
 
 2026-05-29 增加 `geo_reference.json`、将 frame `width/height` 移到 `camera_paras.json` 并统一最终图像内参后，上述静态检查再次通过。内参 helper 也做了最小数值检查：crop 左 10、上 20、右 30、下 40，再 downsample 2 后，`cx/cy/fx/fy/width/height` 均符合公式。
+
+2026-06-05 新增 ME resplit 和 loader 后，`loader/me/load.py` 已通过 `py_compile`，并用 `20250317_161633_1` 场景完成 sub-scene 1/2 的 loader 实跑。
 
 schema 调整后的探针输出根目录：
 
@@ -548,7 +678,7 @@ schema 调整后的探针输出根目录：
 | PandaSet | 480 | 70 | 0 | 0 | 0 | 0 |
 | NuScenes | 1080 | 2 | 0 | 0 | 0 | 0 |
 
-三套输出均包含：
+当前统一 loader 输出均包含：
 
 ```text
 meta_data.json
@@ -559,11 +689,34 @@ ground_lidar.ply
 view.mp4
 ```
 
-三套输出均不包含：
+当前统一 loader 输出均不包含：
 
 ```text
 cam_rigid_config.json
 ```
+
+ME 当前测试记录：
+
+| 阶段 | 路径 | 文件数 | 大小 | 备注 |
+|---|---|---:|---:|---|
+| resplit | `outputs/me/resplit/20250317_161633_1_200m/1` | 769 | 955M | 只复制源标注、图像、lidar，额外生成 `ego_trajectory.png` |
+| resplit | `outputs/me/resplit/20250317_161633_1_200m/2` | 897 | 1.1G | 只复制源标注、图像、lidar，额外生成 `ego_trajectory.png` |
+| loader | `outputs/me/20250317_161633_1_200m/1` | 642 | 590M | 已同步到算力机同名路径 |
+| loader | `outputs/me/20250317_161633_1_200m/2` | 750 | 699M | 已同步到算力机同名路径 |
+
+ME loader 输出字段检查：
+
+| sub-scene | `meta_data.frames` | 图像帧 | 相机目录 | `meta_data.verts` | `CAM_FRONT.source_camera_name` | `CAM_FRONT` 尺寸 | `view.mp4` |
+|---:|---:|---:|---|---:|---|---|---|
+| 1 | 576 | 96 x 6 | 6 个 `CAM_*` | 28 | `CAM_FRONT_120` | 960 x 640 | 有 |
+| 2 | 672 | 112 x 6 | 6 个 `CAM_*` | 125 | `CAM_FRONT_120` | 960 x 640 | 有 |
+
+ME 动态物体一致性检查：
+
+- 所有 `frames[*].dynamics` 中的 object id 都能在 `meta_data.verts` 中找到对应顶点。
+- 所有 `object_to_ego` 都是有限的 4x4 矩阵。
+- 所有 `verts` 都是有限的 8x3 顶点。
+- sub-scene 1 中，使用 ego 坐标直接判动会得到 36 个 track；改为 global XY 位移后得到 28 个 track，去掉了自车运动导致的静态目标误判。
 
 动态物体投影抽查：
 
