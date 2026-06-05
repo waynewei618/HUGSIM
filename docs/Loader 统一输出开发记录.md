@@ -164,7 +164,7 @@ NuScenes 原始相机名已经是 `CAM_*`，保持不变。
 | 数据集 | 当前入口 | 原始输入 | 当前相机输出 | 动态物体来源 | 地理锚点 |
 |---|---|---|---|---|---|
 | Waymo | `loader/waymo/load.py` | 单个 `.tfrecord` | 当前实跑 `CAM_FRONT`、`CAM_FRONT_LEFT`、`CAM_FRONT_RIGHT` | `laser_labels` | `geo_reference.available=false` |
-| PandaSet | `loader/pandaset/load.py` | PandaSet sequence | 6 个 `CAM_*` | `sequence.cuboids` | 从 `meta/gps.json` 写第 0 帧 GPS |
+| PandaSet | `loader/pandaset/load.py` | PandaSet sequence | 6 个 `CAM_*` | `sequence.cuboids` | 从 `meta/gps.json` 写首帧和末帧 GPS |
 | NuScenes | `loader/nuscenes/load.py` | NuScenes scene/version | 6 个 `CAM_*` | sample annotations | `geo_reference.available=false` |
 
 | 数据集 | 原始相机命名 | 统一命名 | 特殊图像处理 | 地面信息 |
@@ -304,15 +304,29 @@ $$
 }
 ```
 
-PandaSet 本地原始数据有 `meta/gps.json`，因此写出第 0 帧 GPS：
+PandaSet 本地原始数据有 `meta/gps.json`，因此写出第 0 帧 GPS，并额外写出当前导出范围最后一帧 GPS，便于后续场景拼接：
 
 ```json
 {
   "available": true,
-  "frame_index": 0,
-  "latitude": 37.77466814570412,
-  "longitude": -122.40106707219165,
-  "height": 2.938702280237465
+  "first": {
+    "frame_index": 0,
+    "timestamp": 1557539924.49981,
+    "latitude": 37.77466814570412,
+    "longitude": -122.40106707219165,
+    "height": 2.938702280237465,
+    "xvel": 0.017196079484729808,
+    "yvel": 7.733904794845615
+  },
+  "last": {
+    "frame_index": 79,
+    "timestamp": 1557539932.400371,
+    "latitude": 37.77522169392809,
+    "longitude": -122.40041067111173,
+    "height": 2.695573289464273,
+    "xvel": 0.014876800469027484,
+    "yvel": 12.918896373525008
+  }
 }
 ```
 
@@ -370,7 +384,7 @@ loader/pandaset/load.py
 - 以 `sequence.lidar.poses[i]` 作为每帧 ego pose，生成 `ego_to_world`。
 - 每个相机使用首帧 `camera.pose` 相对首帧 lidar ego 的位姿写入 `camera_paras.json`。
 - 保留 `back_camera` 裁掉底部 250 像素的旧行为。
-- 写 `geo_reference.json`，从 `meta/gps.json` 读取第 0 帧 `lat/long/height`。
+- 写 `geo_reference.json`，从 `meta/gps.json` 读取第 0 帧和导出末帧的 `lat/long/height/xvel/yvel`。
 - 动态物体由 `sequence.cuboids` 得到，并转成当前 ego 下的 `object_to_ego`。
 - 通过 PandaSet devkit 读取首帧 lidar，拟合地面并写 `ground_lidar.ply` 和 `front_info.json`。
 

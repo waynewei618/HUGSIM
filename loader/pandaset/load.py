@@ -158,7 +158,7 @@ def build_raw_intrinsic(intrinsics):
     return make_intrinsic_matrix(intrinsics.fx, intrinsics.fy, intrinsics.cx, intrinsics.cy)
 
 
-def read_geo_reference(datapath, seq):
+def read_geo_reference(datapath, seq, last_frame_idx=None):
     gps_path = os.path.join(datapath, seq, "meta", "gps.json")
     timestamps_path = os.path.join(datapath, seq, "meta", "timestamps.json")
     reference = {
@@ -178,27 +178,42 @@ def read_geo_reference(datapath, seq):
     if not gps_records:
         return reference
 
-    gps = gps_records[0]
-    timestamp = None
+    timestamps = []
     try:
         with open(timestamps_path) as f:
             timestamps = json.load(f)
-        if timestamps:
-            timestamp = timestamps[0]
     except FileNotFoundError:
         pass
+
+    def timestamp_at(frame_idx):
+        if frame_idx < len(timestamps):
+            return timestamps[frame_idx]
+        return None
+
+    first_gps = gps_records[0]
+    if last_frame_idx is None:
+        last_frame_idx = len(gps_records) - 1
+    last_frame_idx = min(max(int(last_frame_idx), 0), len(gps_records) - 1)
+    last_gps = gps_records[last_frame_idx]
+
+    def geo_record(frame_idx, gps):
+        return {
+            "frame_index": frame_idx,
+            "timestamp": timestamp_at(frame_idx),
+            "latitude": gps.get("lat"),
+            "longitude": gps.get("long"),
+            "height": gps.get("height"),
+            "xvel": gps.get("xvel"),
+            "yvel": gps.get("yvel"),
+        }
 
     return {
         "dataset": "pandaset",
         "sequence": seq,
         "available": True,
         "source": os.path.join(seq, "meta", "gps.json"),
-        "frame_index": 0,
-        "timestamp": timestamp,
-        "latitude": gps.get("lat"),
-        "longitude": gps.get("long"),
-        "height": gps.get("height"),
-        "raw": gps,
+        "first": geo_record(0, first_gps),
+        "last": geo_record(last_frame_idx, last_gps),
     }
 
 
@@ -225,7 +240,7 @@ def main():
         "world_origin": "first_ego_pose",
         "origin_ego_to_global": origin_ego_to_global.tolist(),
     }
-    write_geo_reference(outdir, read_geo_reference(args.datapath, args.seq))
+    write_geo_reference(outdir, read_geo_reference(args.datapath, args.seq, PANDASET_SEQ_LEN - 1))
     video_images = []
     start_timestamp = None
     first_intrinsics = {}
