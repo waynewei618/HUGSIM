@@ -185,7 +185,18 @@ y: 左
 z: 上
 ```
 
-这是右手系。Waymo 和 NuScenes 原始 ego 坐标已经符合该约定；PandaSet loader 以首帧 lidar pose 作为 ego pose，并按同一约定输出。
+这是右手系。Waymo 和 NuScenes 原始 ego 坐标已经符合该约定。PandaSet 的 native lidar 局部坐标表现为 `x` 向右、`y` 向前、`z` 向上，因此 loader 在写出前显式乘固定轴变换，把 PandaSet native 坐标转成 HUGSIM ego：
+
+$$
+C_{\text{pandaset native}\rightarrow\text{hugsim ego}}
+=
+\begin{bmatrix}
+0 & 1 & 0 & 0\\
+-1 & 0 & 0 & 0\\
+0 & 0 & 1 & 0\\
+0 & 0 & 0 & 1
+\end{bmatrix}
+$$
 
 每个序列的归一化 world 以第 0 帧 ego 为原点。`meta_data.frames[*].ego_to_world` 表示当前帧 ego 到该归一化 world 的 4x4 位姿。
 
@@ -381,11 +392,11 @@ loader/pandaset/load.py
 主要处理：
 
 - 6 个 PandaSet 原始相机全部映射为 `CAM_*`。
-- 以 `sequence.lidar.poses[i]` 作为每帧 ego pose，生成 `ego_to_world`。
-- 每个相机使用首帧 `camera.pose` 相对首帧 lidar ego 的位姿写入 `camera_paras.json`。
+- 以 `sequence.lidar.poses[i]` 作为每帧 native ego pose，再经 PandaSet native 到 HUGSIM ego 的固定轴变换生成 `ego_to_world`。
+- 每个相机使用首帧 `camera.pose` 相对首帧 lidar ego 的 native 位姿，经固定轴变换后写入 `camera_paras.json`。
 - 保留 `back_camera` 裁掉底部 250 像素的旧行为。
 - 写 `geo_reference.json`，从 `meta/gps.json` 读取第 0 帧和导出末帧的 `lat/long/height/xvel/yvel`。
-- 动态物体由 `sequence.cuboids` 得到，并转成当前 ego 下的 `object_to_ego`。
+- 动态物体由 `sequence.cuboids` 得到，并转成当前 HUGSIM ego 下的 `object_to_ego`。
 - 通过 PandaSet devkit 读取首帧 lidar，拟合地面并写 `ground_lidar.ply` 和 `front_info.json`。
 
 PandaSet 有一个特殊问题：仓库根目录存在空的 `pandaset/` 目录，会遮蔽官方 PandaSet devkit。新 loader 在导入官方 `pandaset.DataSet` 时会临时移除项目根路径，避免误导入本仓库的空目录。
@@ -413,6 +424,7 @@ loader/nuscenes/load.py
 主要处理：
 
 - NuScenes 原始相机名已经是 `CAM_*`，目录名保持不变。
+- 优先使用 `nusc.utils` 工具函数；本地没有该包时回退到仓库内 NuScenes 归档工具函数。
 - 每个相机的 calibrated sensor pose 直接作为 `camera_to_ego` 写入 `camera_paras.json`。
 - 每个相机 sample_data 的 ego pose 转为 `ego_to_world`。
 - 动态物体从 annotation box world pose 转为当前 ego 下的 `object_to_ego`。

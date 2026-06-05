@@ -31,13 +31,31 @@ from common import (  # noqa: E402
     write_front_info,
     write_geo_reference,
 )
-from nusc.utils import (  # noqa: E402
-    AVAILABLE_CAMERAS,
-    WLH_TO_LWH,
-    _rotation_translation_to_pose,
-    find_all_sample,
-    get_vertices,
-)
+try:
+    from nusc.utils import (  # noqa: E402
+        AVAILABLE_CAMERAS,
+        WLH_TO_LWH,
+        _rotation_translation_to_pose,
+        find_all_sample,
+        get_vertices,
+    )
+except ImportError:
+    try:
+        from .archive.utils import (  # noqa: E402
+            AVAILABLE_CAMERAS,
+            WLH_TO_LWH,
+            _rotation_translation_to_pose,
+            find_all_sample,
+            get_vertices,
+        )
+    except ImportError:
+        from archive.utils import (  # noqa: E402
+            AVAILABLE_CAMERAS,
+            WLH_TO_LWH,
+            _rotation_translation_to_pose,
+            find_all_sample,
+            get_vertices,
+        )
 
 CAMERA_CROPS = {
     "CAM_BACK": {"bottom": 80},

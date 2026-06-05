@@ -56,6 +56,28 @@ SOURCE_CAMERAS = tuple(PANDASET_CAMERA_MAP.keys())
 CAMERA_CROPS = {
     "back_camera": {"bottom": 250},
 }
+PANDASET_NATIVE_TO_HUGSIM = np.array(
+    [
+        [0, 1, 0, 0],
+        [-1, 0, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1],
+    ],
+    dtype=np.float64,
+)
+HUGSIM_TO_PANDASET_NATIVE = PANDASET_NATIVE_TO_HUGSIM.T
+
+
+def native_points_to_hugsim(points):
+    return (PANDASET_NATIVE_TO_HUGSIM[:3, :3] @ np.asarray(points).T).T
+
+
+def native_ego_delta_to_hugsim(transform):
+    return PANDASET_NATIVE_TO_HUGSIM @ transform @ HUGSIM_TO_PANDASET_NATIVE
+
+
+def native_target_to_hugsim(transform):
+    return PANDASET_NATIVE_TO_HUGSIM @ transform
 
 
 def import_dataset_class():
@@ -93,7 +115,8 @@ def fit_ground_from_lidar(sequence, outdir):
     points_world = lidar[["x", "y", "z"]].to_numpy(dtype=np.float64)
     lidar_pose = _pandaset_pose_to_matrix(sequence.lidar.poses[0])
     world_to_lidar = np.linalg.inv(lidar_pose)
-    points_lidar = (world_to_lidar[:3, :3] @ points_world.T).T + world_to_lidar[:3, 3]
+    points_lidar_native = (world_to_lidar[:3, :3] @ points_world.T).T + world_to_lidar[:3, 3]
+    points_lidar = native_points_to_hugsim(points_lidar_native)
 
     ground_mask = (np.abs(points_lidar[:, 0]) < 6) & (np.abs(points_lidar[:, 1]) < 3)
     points_lidar = points_lidar[ground_mask]
@@ -105,20 +128,22 @@ def fit_ground_from_lidar(sequence, outdir):
     a, b, c, d = plane_model
 
     front_pose_world = _pandaset_pose_to_matrix(sequence.camera["front_camera"].poses[0])
-    front_pose_lidar = world_to_lidar @ front_pose_world
+    front_pose_lidar_native = world_to_lidar @ front_pose_world
+    front_pose_lidar = native_target_to_hugsim(front_pose_lidar_native)
     front_cam_t = front_pose_lidar[:3, 3]
     ground_height = -(a * front_cam_t[0] + b * front_cam_t[1] + d) / c
     write_front_info(outdir, front_cam_t[2] - ground_height, rect_mat=None)
 
 
 def collect_camera_paras(sequence, source_cameras, intrinsics, image_sizes):
-    ego_to_global = _pandaset_pose_to_matrix(sequence.lidar.poses[0])
-    global_to_ego = invert_transform(ego_to_global)
+    ego_to_global_native = _pandaset_pose_to_matrix(sequence.lidar.poses[0])
+    global_to_ego_native = invert_transform(ego_to_global_native)
     camera_paras = {}
     for source_camera in source_cameras:
         canonical_camera = PANDASET_CAMERA_MAP[source_camera]
         camera_to_global = _pandaset_pose_to_matrix(sequence.camera[source_camera].poses[0])
-        camera_to_ego = global_to_ego @ camera_to_global
+        camera_to_ego_native = global_to_ego_native @ camera_to_global
+        camera_to_ego = native_target_to_hugsim(camera_to_ego_native)
         height, width = image_sizes[source_camera]
         camera_paras[canonical_camera] = {
             "source_camera_name": source_camera,
@@ -229,8 +254,8 @@ def main():
     sequence = pandaset[args.seq]
     sequence.load()
 
-    origin_ego_to_global = _pandaset_pose_to_matrix(sequence.lidar.poses[0])
-    global_to_origin_ego = invert_transform(origin_ego_to_global)
+    origin_ego_to_global_native = _pandaset_pose_to_matrix(sequence.lidar.poses[0])
+    global_to_origin_ego_native = invert_transform(origin_ego_to_global_native)
     fit_ground_from_lidar(sequence, outdir)
 
     meta_data = {
@@ -238,7 +263,7 @@ def main():
         "ego_coordinate": {"x": "forward", "y": "left", "z": "up", "handedness": "right"},
         "frames": [],
         "world_origin": "first_ego_pose",
-        "origin_ego_to_global": origin_ego_to_global.tolist(),
+        "origin_ego_to_global": (origin_ego_to_global_native @ HUGSIM_TO_PANDASET_NATIVE).tolist(),
     }
     write_geo_reference(outdir, read_geo_reference(args.datapath, args.seq, PANDASET_SEQ_LEN - 1))
     video_images = []
@@ -249,8 +274,9 @@ def main():
 
     for frame_idx in tqdm(range(PANDASET_SEQ_LEN)):
         frame_video_images = {}
-        ego_to_global = _pandaset_pose_to_matrix(sequence.lidar.poses[frame_idx])
-        ego_to_world = global_to_origin_ego @ ego_to_global
+        ego_to_global_native = _pandaset_pose_to_matrix(sequence.lidar.poses[frame_idx])
+        ego_to_world_native = global_to_origin_ego_native @ ego_to_global_native
+        ego_to_world = native_ego_delta_to_hugsim(ego_to_world_native)
         for source_camera in SOURCE_CAMERAS:
             canonical_camera = PANDASET_CAMERA_MAP[source_camera]
             im, im_name, height, width, intrinsic, timestamp = load_camera_image(
@@ -282,7 +308,7 @@ def main():
         if not args.no_video:
             append_video_frame(video_images, frame_video_images, image_size=(384, 216))
 
-    def write_box_images(frame_idx, global_to_ego, frame_dynamic_boxes, frame_verts):
+    def write_box_images(frame_idx, global_to_ego_native, frame_dynamic_boxes, frame_verts):
         if frame_idx % BOX_DRAW_INTERVAL != 0:
             return
         for source_camera in SOURCE_CAMERAS:
@@ -293,7 +319,8 @@ def main():
             if box_img is None:
                 raise FileNotFoundError(image_path)
             camera_to_global = _pandaset_pose_to_matrix(sequence.camera[source_camera].poses[frame_idx])
-            camera_to_ego = global_to_ego @ camera_to_global
+            camera_to_ego_native = global_to_ego_native @ camera_to_global
+            camera_to_ego = native_target_to_hugsim(camera_to_ego_native)
             draw_dynamic_boxes(
                 box_img,
                 first_intrinsics[source_camera],
@@ -306,13 +333,13 @@ def main():
     cuboids = {}
     for frame_idx in tqdm(range(PANDASET_SEQ_LEN)):
         curr_cuboids = sequence.cuboids[frame_idx]
-        ego_to_global = _pandaset_pose_to_matrix(sequence.lidar.poses[frame_idx])
-        global_to_ego = invert_transform(ego_to_global)
+        ego_to_global_native = _pandaset_pose_to_matrix(sequence.lidar.poses[frame_idx])
+        global_to_ego_native = invert_transform(ego_to_global_native)
         is_allowed_class = np.array([label in DYNAMIC_CLASSES for label in curr_cuboids["label"]])
         valid_mask = (~curr_cuboids["stationary"]) & is_allowed_class
         curr_cuboids = curr_cuboids[valid_mask]
         if not len(curr_cuboids):
-            write_box_images(frame_idx, global_to_ego, {}, {})
+            write_box_images(frame_idx, global_to_ego_native, {}, {})
             continue
 
         uuids = np.array(curr_cuboids["uuid"])
@@ -329,7 +356,8 @@ def main():
         cuboid_poses = np.eye(4)[None].repeat(len(uuids), axis=0)
         cuboid_poses[:, :3, :3] = rot
         cuboid_poses[:, :3, 3] = pos
-        cuboid_poses = global_to_ego @ cuboid_poses
+        cuboid_poses_native = global_to_ego_native @ cuboid_poses
+        cuboid_poses = native_target_to_hugsim(cuboid_poses_native)
 
         dims = np.vstack(
             [
@@ -357,7 +385,7 @@ def main():
             for camera_index in range(len(SOURCE_CAMERAS)):
                 meta_data["frames"][frame_idx * len(SOURCE_CAMERAS) + camera_index]["dynamics"][uuid] = pose
 
-        write_box_images(frame_idx, global_to_ego, frame_dynamic_boxes, frame_verts)
+        write_box_images(frame_idx, global_to_ego_native, frame_dynamic_boxes, frame_verts)
 
     meta_data["verts"] = {uuid: cuboid["verts"].tolist() for uuid, cuboid in cuboids.items()}
     camera_paras = collect_camera_paras(sequence, SOURCE_CAMERAS, first_intrinsics, first_image_sizes)
