@@ -1,8 +1,8 @@
 # Loader 统一输出开发记录
 
-本文记录 2026-05-29 对 Waymo、PandaSet、NuScenes 三套 loader 的统一输出开发过程，并合并原数据准备流程对比、三套数据集前处理记录和 NuScenes 12Hz 标注记录。
+本文记录 2026-05-29 对 Waymo、PandaSet、NuScenes 三套 loader 的统一输出开发过程，并合并原数据准备流程对比、三套 loader 处理记录和 NuScenes 12Hz 标注记录。
 
-当前有效流程以本文为准：原始数据先进入 `loader/` 生成统一中间格式，再由 `pre_train/` 生成训练前产物。旧 `data/<dataset>/load.py` 和 `data/utils/*.py` 中已有新实现替代的入口已删除；没有新实现替代的旧辅助脚本只保留在 `loader/*/archive/` 或 `pre_train/archive/` 作参考。
+本文只覆盖原始数据进入 `loader/` 并生成统一中间格式的阶段；后续训练前处理记录见 `docs/数据到训练开发记录.md`。旧 `data/<dataset>/load.py` 和 `data/utils/*.py` 中已有新实现替代的入口已删除；没有新实现替代的旧辅助脚本只保留在对应 `archive/` 目录作参考。
 
 ## 目标和约束
 
@@ -44,7 +44,7 @@ images/CAM_FRONT_LEFT
 images/CAM_FRONT_RIGHT
 ```
 
-## 当前数据准备主流程
+## 当前 loader 运行流程
 
 默认已进入 Docker 容器内的 `/workspace/HUGSIM`：
 
@@ -58,32 +58,42 @@ images/CAM_FRONT_RIGHT
       -> front_info.json
       -> ground_lidar.ply
       -> view.mp4
-  -> pre_train/run_prepare.py
-      -> semantics/
-      -> masks/
-      -> depth/
-      -> points3d.ply
-      -> ground_points3d.ply
-      -> ground_param.pkl
 ```
 
-训练前处理统一运行：
+按数据集选择一个 loader 入口运行。
+
+Waymo：
 
 ```bash
-HUGSIM_DISABLE_XFORMERS=1 .pixi/envs/default/bin/python pre_train/run_prepare.py \
-  --input <loader_out> \
-  --cuda 0 \
-  --total 200000
+.pixi/envs/default/bin/python loader/waymo/load.py \
+  -b <waymo_root> \
+  -s <segment.tfrecord> \
+  -c 1 2 3 \
+  -o <loader_out> \
+  --downsample 2
 ```
 
-分步入口：
+PandaSet：
 
 ```bash
-.pixi/envs/default/bin/python pre_train/infer_semantics.py --input <loader_out> --cuda 0
-.pixi/envs/default/bin/python pre_train/create_dynamic_mask.py --input <loader_out>
-HUGSIM_DISABLE_XFORMERS=1 .pixi/envs/default/bin/python pre_train/estimate_depth.py --input <loader_out>
-.pixi/envs/default/bin/python pre_train/merge_depth_wo_ground.py --input <loader_out> --total 200000
-.pixi/envs/default/bin/python pre_train/merge_depth_ground.py --input <loader_out> --total 200000
+.pixi/envs/default/bin/python loader/pandaset/load.py \
+  --datapath <pandaset_root> \
+  --seq <sequence_id> \
+  --out <loader_out> \
+  --downsample 2
+```
+
+NuScenes：
+
+```bash
+.pixi/envs/default/bin/python loader/nuscenes/load.py \
+  --datapath <nuscenes_root> \
+  --version <version> \
+  --seq <scene_name> \
+  --out <loader_out> \
+  --downsample 2 \
+  --start 0 \
+  --end <end_frame>
 ```
 
 ## 代码结构
@@ -469,8 +479,7 @@ cd /workspace/HUGSIM
   loader/common.py \
   loader/waymo/load.py \
   loader/pandaset/load.py \
-  loader/nuscenes/load.py \
-  pre_train/*.py
+  loader/nuscenes/load.py
 ```
 
 2026-05-29 增加 `geo_reference.json`、将 frame `width/height` 移到 `camera_paras.json` 并统一最终图像内参后，上述静态检查再次通过。内参 helper 也做了最小数值检查：crop 左 10、上 20、右 30、下 40，再 downsample 2 后，`cx/cy/fx/fy/width/height` 均符合公式。
@@ -559,24 +568,12 @@ ls -lh "$out"/front_info.json "$out"/ground_lidar.ply "$out"/view.mp4
 test ! -e "$out/cam_rigid_config.json"
 ```
 
-检查训练前产物：
-
-```bash
-out=<loader_out>
-
-find "$out/semantics" -type f -name "*.npy" | wc -l
-find "$out/masks" -type f -name "*.npy" | wc -l
-find "$out/depth" -type f -name "*.pt" | wc -l
-ls -lh "$out"/points3d.ply "$out"/ground_points3d.ply "$out"/ground_param.pkl
-```
-
 ## 当前边界
 
-2026-05-29 后续开发已经完成下游切换：训练前处理集中在 `pre_train/`，训练和离线仿真准备入口集中在 `train/`。旧 `data/` 代码按替代关系清理：
+本文边界停在 loader 输出。下游训练前处理、训练和离线仿真准备见 `docs/数据到训练开发记录.md` 和 `docs/HUGSIM 程序运行 Pipeline.md`。旧 `data/` 代码按替代关系清理：
 
 - `data/<dataset>/load.py` 和 `data/utils/*.py` 中已有新实现替代的入口已删除。
-- 未被新实现替代的 COLMAP、fisheye、统计和运行脚本移动到 `loader/*/archive/`、`loader/archive/` 或 `pre_train/archive/` 作为参考。
-- `data/InverseForm/` 已移动到 `pre_train/InverseForm/`，作为当前 `pre_train/infer_semantics.py` 的运行依赖。
+- 未被新实现替代的 COLMAP、fisheye、统计和运行脚本移动到对应 `archive/` 目录作为参考。
 
 下游以 `camera_paras.json` 和 `meta_data.frames[*].camera_name` 为准，不再从每帧读取 `intrinsics`、`camtoworld`、`width` 或 `height`。
 
