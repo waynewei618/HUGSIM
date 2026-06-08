@@ -14,6 +14,13 @@ import shutil
 VEHICLE_TEMPLATE = "utils/vehicle_template/benz_nuscenes.ply"
 
 
+def downsample_points(points, max_points):
+    if max_points <= 0 or points.shape[0] <= max_points:
+        return points
+    indices = np.linspace(0, points.shape[0] - 1, max_points, dtype=np.int64)
+    return points[indices]
+
+
 def copy_if_different(src, dst):
     if os.path.abspath(src) != os.path.abspath(dst):
         shutil.copyfile(src, dst)
@@ -100,13 +107,16 @@ class Scene:
 
         else:
             self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent)
+            dynamic_template_max_points = int(getattr(args, "dynamic_template_max_points", 0) or 0)
+            if dynamic_template_max_points > 0:
+                print(f"Dynamic template max points: {dynamic_template_max_points}")
             for track_id in self.dynamic_gaussians.keys():
                 vertices = scene_info.verts[track_id]
 
                 # init from template
                 l, h, w = vertices[:, 0].max() - vertices[:, 0].min(), vertices[:, 1].max() - vertices[:, 1].min(), vertices[:, 2].max() - vertices[:, 2].min()
                 pcd = o3d.io.read_point_cloud(VEHICLE_TEMPLATE)
-                points = np.array(pcd.points) * np.array([l, h, w])
+                points = downsample_points(np.asarray(pcd.points), dynamic_template_max_points) * np.array([l, h, w])
                 pcd.points = o3d.utility.Vector3dVector(points)
                 pcd.colors = o3d.utility.Vector3dVector(np.ones_like(points) * 0.5)
 
